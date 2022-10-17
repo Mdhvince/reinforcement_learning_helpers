@@ -38,6 +38,8 @@ def policy_evaluation(π, P, gamma, theta=1e-10):
 
 def policy_improvement(V, P, gamma):
     """
+    Policy Improvement is known as : Control
+    
     Compute the Q-function, once done,
     Select max action per state thanks to Q : This will be our new policy
     This new policy will be evaluated by the policy_evaluation().
@@ -66,7 +68,21 @@ def policy_improvement(V, P, gamma):
     return new_π
 
 
+def policy_iteration(π, P, gamma=0.99, theta=1e-10):
+    """
+    - Start with a random policy + Eval + Improvement = Policicy iteration Alg
+    """
+    while True:
 
+        V = policy_evaluation(π, P, gamma, theta)
+        new_π = policy_improvement(V, P, gamma)
+        
+        if π == new_π: break
+
+        π = new_π
+    
+    return V, new_π
+    
 
 
 
@@ -107,8 +123,11 @@ if __name__ == "__main__":
         }
     }
     
-    V = policy_evaluation(π, dynamic_P, gamma=.99, theta=1e-10)
-    new_π = policy_improvement(V, dynamic_P, gamma=.99)
+    # V = policy_evaluation(π, dynamic_P, gamma=.99, theta=1e-10)
+    # new_π = policy_improvement(V, dynamic_P, gamma=.99)
 
+    V, new_π = policy_iteration(π, dynamic_P, gamma=0.99, theta=1e-10)
 
+    print(V)
+    print(new_π)
 
