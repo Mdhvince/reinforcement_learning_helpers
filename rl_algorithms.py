@@ -20,10 +20,11 @@ def policy_evaluation(π, P, gamma, theta=1e-10):
     Output:
         - Value function
     """
-    old_V = np.zeros(len(P))
+    states_size = len(P)
+    old_V = np.zeros(states_size)
     while True:
-        V = np.zeros(len(P))
-        for s, _ in P.items():
+        V = np.zeros(states_size)
+        for s in range(states_size):  # one sweep is completed when this loop is completed
             action = π[s]
 
             for t in P[s][action]:  # iterate over possible transitions of "action"
@@ -39,7 +40,7 @@ def policy_evaluation(π, P, gamma, theta=1e-10):
 def policy_improvement(V, P, gamma):
     """
     Policy Improvement is known as : Control
-    
+
     Compute the Q-function, once done,
     Select max action per state thanks to Q : This will be our new policy
     This new policy will be evaluated by the policy_evaluation().
@@ -70,19 +71,48 @@ def policy_improvement(V, P, gamma):
 
 def policy_iteration(π, P, gamma=0.99, theta=1e-10):
     """
-    - Start with a random policy + Eval + Improvement = Policicy iteration Alg
+    - Repeat Evaluation and Improvement over and over
     """
     while True:
-
         V = policy_evaluation(π, P, gamma, theta)
         new_π = policy_improvement(V, P, gamma)
         
-        if π == new_π: break
-
+        if π == new_π: break  # no further improvements (no changes in π)
         π = new_π
     
     return V, new_π
+
+
+def value_iteration(P, gamma=.99, theta=1e-10):
+    """
+    Policy iteration but without waiting for multiple sweeps of V before improving Policy.
+    Part of GPI (Generalized Policy Iteration)
+    """
+    states_size = len(P)
+    actions_size = len(P[0])
+
+    V = np.zeros(states_size)
+
+    while True:
+        Q = np.zeros((states_size, actions_size), dtype=np.float64)
+
+        for s in range(states_size):  # one sweep is completed when this loop is completed
+            for action, transitions_list in P[s].items():  # iterate over actions available in a state
+                for t in transitions_list:  # iterate over possible transitions of "action"
+                    episode_continue = not t.episode_is_done
+                    Q[s][action] += t.prob * (t.reward + gamma * V[t.next_state] * episode_continue)
+
+        highest_value_per_state = np.max(Q, axis=1)
+        if np.max(np.abs(V - highest_value_per_state)) < theta: break
+
+        V = highest_value_per_state
+        
+        new_π = {}
+        greedy_action_per_state = np.argmax(Q, axis=1)
+        for s in range(states_size):
+            new_π[s] = greedy_action_per_state[s]
     
+    return V, new_π
 
 
 
@@ -123,11 +153,9 @@ if __name__ == "__main__":
         }
     }
     
-    # V = policy_evaluation(π, dynamic_P, gamma=.99, theta=1e-10)
-    # new_π = policy_improvement(V, dynamic_P, gamma=.99)
-
+    V = policy_evaluation(π, dynamic_P, gamma=.99, theta=1e-10)
+    new_π = policy_improvement(V, dynamic_P, gamma=.99)
+    
     V, new_π = policy_iteration(π, dynamic_P, gamma=0.99, theta=1e-10)
-
-    print(V)
-    print(new_π)
+    V, new_π = value_iteration(dynamic_P, gamma=.99, theta=1e-10)
 
