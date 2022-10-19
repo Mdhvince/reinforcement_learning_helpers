@@ -3,118 +3,124 @@ from collections import namedtuple
 import numpy as np
 
 
-"""
-Algorithms for finding optimal policy when we have access to the MDP
-(the dynamic of the environment P)
-"""
 
-def policy_evaluation(π, P, gamma, theta=1e-10):
+
+class DynamicProgramming:
     """
-    Evaluating an arbitrary policy π by computing its V-function (state-value function)
-
-    Inputs:
-        - Policy π
-        - Dynamic of the environment P
-        - Discount factor gamma
-        - Treshold theta to stop iterating if not enough changes
-    Output:
-        - Value function
+    Algorithms for finding optimal policy when we have access to the MDP
+    (the dynamic of the environment P)
     """
-    states_size = len(P)
-    old_V = np.zeros(states_size)
-    while True:
-        V = np.zeros(states_size)
-        for s in range(states_size):  # one sweep is completed when this loop is completed
-            action = π[s]
+    def __init__(self, π, P, gamma=0.99, theta=1e-10):
+        self.π = π
+        self.P = P
+        self.gamma = gamma
+        self.theta = theta
 
-            for t in P[s][action]:  # iterate over possible transitions of "action"
-                episode_continue = not t.episode_is_done
-                V[s] += t.prob * (t.reward + gamma * old_V[t.next_state] * episode_continue)
-            
-
-        if np.max(np.abs(old_V - V)) < theta: break
-        old_V = V.copy()
-    return V
+        self.states_size = len(P)
+        self.actions_size = len(P[0])
 
 
-def policy_improvement(V, P, gamma):
-    """
-    Policy Improvement is known as : Control
 
-    Compute the Q-function, once done,
-    Select max action per state thanks to Q : This will be our new policy
-    This new policy will be evaluated by the policy_evaluation().
-    Inputs:
-        - Value function
-        - Dynamic of the environment P
-        - Discount factor gamma
-    Output:
-        - New policy π
-    """
-    states_size = len(P)
-    actions_size = len(P[0])
-    Q = np.zeros((states_size, actions_size), dtype=np.float64)
+    def _policy_evaluation(self):
+        """
+        Evaluating an arbitrary policy π by computing its V-function (state-value function)
 
-    for s in range(states_size):
-        for action, transitions_list in P[s].items():  # iterate over actions available in a state
-            for t in transitions_list:  # iterate over possible transitions of "action"
-                episode_continue = not t.episode_is_done
-                Q[s][action] += t.prob * (t.reward + gamma * V[t.next_state] * episode_continue)
-    
-    new_π = {}
-    greedy_action_per_state = np.argmax(Q, axis=1)
-    for s in range(states_size):
-        new_π[s] = greedy_action_per_state[s]
-    
-    return new_π
+        Inputs:
+            - Policy π
+            - Dynamic of the environment P
+            - Discount factor gamma
+            - Treshold theta to stop iterating if not enough changes
+        Output:
+            - Value function
+        """
+        old_V = np.zeros(self.states_size)
+        while True:
+            V = np.zeros(self.states_size)
+            for s in range(self.states_size):  # one sweep is completed when this loop is completed
+                action = self.π[s]
+
+                for t in self.P[s][action]:  # iterate over possible transitions of "action"
+                    episode_continue = not t.episode_is_done
+                    V[s] += t.prob * (t.r + self.gamma * old_V[t.next_state] * episode_continue)
+                
+
+            if np.max(np.abs(old_V - V)) < self.theta: break
+            old_V = V.copy()
+        return V
 
 
-def policy_iteration(π, P, gamma=0.99, theta=1e-10):
-    """
-    - Repeat Evaluation and Improvement over and over
-    """
-    while True:
-        V = policy_evaluation(π, P, gamma, theta)
-        new_π = policy_improvement(V, P, gamma)
-        
-        if π == new_π: break  # no further improvements (no changes in π)
-        π = new_π
-    
-    return V, new_π
+    def _policy_improvement(self, V):
+        """
+        Policy Improvement is known as : Control
 
+        Compute the Q-function, once done,
+        Select max action per state thanks to Q : This will be our new policy
+        This new policy will be evaluated by the _policy_evaluation().
+        Inputs:
+            - Value function
+            - Dynamic of the environment P
+            - Discount factor gamma
+        Output:
+            - New policy π
+        """
+        Q = np.zeros((self.states_size, self.actions_size), dtype=np.float64)
 
-def value_iteration(P, gamma=.99, theta=1e-10):
-    """
-    Policy iteration but without waiting for multiple sweeps of V before improving Policy.
-    Part of GPI (Generalized Policy Iteration)
-    """
-    states_size = len(P)
-    actions_size = len(P[0])
-
-    V = np.zeros(states_size)
-
-    while True:
-        Q = np.zeros((states_size, actions_size), dtype=np.float64)
-
-        for s in range(states_size):  # one sweep is completed when this loop is completed
-            for action, transitions_list in P[s].items():  # iterate over actions available in a state
+        for s in range(self.states_size):
+            for action, transitions_list in self.P[s].items():  # iterate over actions available in a state
                 for t in transitions_list:  # iterate over possible transitions of "action"
                     episode_continue = not t.episode_is_done
-                    Q[s][action] += t.prob * (t.reward + gamma * V[t.next_state] * episode_continue)
-
-        highest_value_per_state = np.max(Q, axis=1)
-        if np.max(np.abs(V - highest_value_per_state)) < theta: break
-
-        V = highest_value_per_state
+                    Q[s][action] += t.prob * (t.r + self.gamma * V[t.next_state] * episode_continue)
         
         new_π = {}
         greedy_action_per_state = np.argmax(Q, axis=1)
-        for s in range(states_size):
+        for s in range(self.states_size):
             new_π[s] = greedy_action_per_state[s]
-    
-    return V, new_π
+        
+        return new_π
 
 
+    def policy_iteration(self):
+        """
+        - Repeat Evaluation and Improvement over and over
+        """
+        while True:
+            V = self._policy_evaluation()
+            new_π = self._policy_improvement(V)
+            
+            if self.π == new_π: break  # no further improvements (no changes in π)
+            self.π = new_π
+        
+        return V, self.π
+
+
+    def value_iteration(self):
+        """
+        Policy iteration but without waiting for multiple sweeps of V before improving Policy.
+        Part of GPI (Generalized Policy Iteration)
+        """
+
+        V = np.zeros(self.states_size)
+
+        while True:
+            Q = np.zeros((self.states_size, self.actions_size), dtype=np.float64)
+
+            for s in range(self.states_size):  # one sweep is completed when this loop is completed
+                for action, transitions_list in self.P[s].items():  # iterate over actions available in a state
+                    for t in transitions_list:  # iterate over possible transitions of "action"
+                        episode_continue = not t.episode_is_done
+                        Q[s][action] += t.prob * (t.r + self.gamma * V[t.next_state] * episode_continue)
+
+            highest_value_per_state = np.max(Q, axis=1)
+            if np.max(np.abs(V - highest_value_per_state)) < self.theta: break
+
+            V = highest_value_per_state
+            
+            new_π = {}
+            greedy_action_per_state = np.argmax(Q, axis=1)
+            for s in range(self.states_size):
+                new_π[s] = greedy_action_per_state[s]
+        
+        return V, new_π
 
 
 
@@ -128,7 +134,7 @@ if __name__ == "__main__":
     """
     actions = [0, 1]  # ["left", "right"]
     states = [0, 1, 2]
-    Transition = namedtuple('Transition', ['prob', 'next_state', 'reward', 'episode_is_done'])
+    Transition = namedtuple('Transition', ['prob', 'next_state', 'r', 'episode_is_done'])
 
     # Define the always (for every states) "left" policy
     π = {}
@@ -152,10 +158,17 @@ if __name__ == "__main__":
             0: [Transition(1.0, 2, 0, 1)], 1: [Transition(1.0, 2, 0, 1)]
         }
     }
+
+    agent = DynamicProgramming(π, dynamic_P)
+
     
-    V = policy_evaluation(π, dynamic_P, gamma=.99, theta=1e-10)
-    new_π = policy_improvement(V, dynamic_P, gamma=.99)
+    V, new_π = agent.policy_iteration()
+    print(V, new_π)
+
+    agent2 = DynamicProgramming(π, dynamic_P)
+
+    V, new_π = agent2.value_iteration()
+    print(V, new_π)
+
     
-    V, new_π = policy_iteration(π, dynamic_P, gamma=0.99, theta=1e-10)
-    V, new_π = value_iteration(dynamic_P, gamma=.99, theta=1e-10)
 
