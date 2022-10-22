@@ -3,8 +3,6 @@ from collections import namedtuple
 import numpy as np
 
 
-
-
 class DynamicProgramming:
     """
     Algorithms for finding optimal policy when we have access to the MDP
@@ -20,6 +18,7 @@ class DynamicProgramming:
         self.actions_size = len(P[0])
 
 
+    #### Estimating State-Value functions ####
 
     def _policy_evaluation(self):
         """
@@ -47,7 +46,11 @@ class DynamicProgramming:
             if np.max(np.abs(old_V - V)) < self.theta: break
             old_V = V.copy()
         return V
+    
 
+    #### -------------------------------------------------------------------------------------- ####
+
+    #### Estimating Action-Value functions ####
 
     def _policy_improvement(self, V):
         """
@@ -78,6 +81,9 @@ class DynamicProgramming:
         
         return new_π
 
+    #### -------------------------------------------------------------------------------------- ####
+
+    #### Find Optimal Policies ####
 
     def policy_iteration(self):
         """
@@ -121,6 +127,8 @@ class DynamicProgramming:
                 new_π[s] = greedy_action_per_state[s]
         
         return V, new_π
+
+    #### -------------------------------------------------------------------------------------- ####
 
 
 
