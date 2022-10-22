@@ -75,7 +75,7 @@ class DynamicProgramming:
                     Q[s][action] += t.prob * (t.r + self.gamma * V[t.next_state] * episode_continue)
         
         new_π = {}
-        greedy_action_per_state = np.argmax(Q, axis=1)
+        greedy_action_per_state = np.argmax(Q, axis=1)  # a*
         for s in range(self.states_size):
             new_π[s] = greedy_action_per_state[s]
         
