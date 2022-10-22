@@ -38,14 +38,14 @@ class DynamicProgramming:
             for s in range(self.states_size):  # one sweep is completed when this loop is completed
                 action = self.π[s]
 
-                for t in self.P[s][action]:  # iterate over possible transitions of "action"
+                # iterate over possible transitions of "action"
+                for t in self.P[s][action]:
                     episode_continue = not t.episode_is_done
                     V[s] += t.prob * (t.r + self.gamma * old_V[t.next_state] * episode_continue)
-                
 
             if np.max(np.abs(old_V - V)) < self.theta: break
             old_V = V.copy()
-        return V
+        return V  #[v0, v1, v2] value of 3 states
     
 
     #### -------------------------------------------------------------------------------------- ####
@@ -60,7 +60,7 @@ class DynamicProgramming:
         Select max action per state thanks to Q : This will be our new policy
         This new policy will be evaluated by the _policy_evaluation().
         Inputs:
-            - Value function
+            - Value function [v0, v1, v2] value of 3 states
             - Dynamic of the environment P
             - Discount factor gamma
         Output:
