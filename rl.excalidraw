@@ -19624,8 +19624,8 @@
     },
     {
       "type": "text",
-      "version": 401,
-      "versionNonce": 1007305594,
+      "version": 419,
+      "versionNonce": 1549688614,
       "isDeleted": false,
       "id": "-0-xHNmvUl4s3aFLxgtuq",
       "fillStyle": "solid",
@@ -19639,22 +19639,22 @@
       "strokeColor": "#364fc7",
       "backgroundColor": "#fd7e14",
       "width": 912,
-      "height": 225,
+      "height": 270,
       "seed": 246791393,
       "groupIds": [],
       "strokeSharpness": "sharp",
       "boundElements": [],
-      "updated": 1666541214563,
+      "updated": 1666542624539,
       "link": null,
       "locked": false,
       "fontSize": 36,
       "fontFamily": 1,
-      "text": "\n- Pure exploitation (greedy strategy) : see code\n- Epsilon-greedy strategy : see code\n- Linear/Exponential decay of eps greedy: see code\n- Softmax: see code",
-      "baseline": 212,
+      "text": "\n- Pure exploitation (greedy strategy) : see code\n- Epsilon-greedy strategy : see code\n- Linear/Exponential decay of eps greedy: see code\n- Softmax: see code\n- UCB: see code",
+      "baseline": 257,
       "textAlign": "left",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "\n- Pure exploitation (greedy strategy) : see code\n- Epsilon-greedy strategy : see code\n- Linear/Exponential decay of eps greedy: see code\n- Softmax: see code"
+      "originalText": "\n- Pure exploitation (greedy strategy) : see code\n- Epsilon-greedy strategy : see code\n- Linear/Exponential decay of eps greedy: see code\n- Softmax: see code\n- UCB: see code"
     }
   ],
   "appState": {
