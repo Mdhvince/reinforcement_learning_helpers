@@ -29,12 +29,10 @@ def mc_prediction(π, env, gamma=1., init_lr=.5, min_lr=.01, lr_decay_ratio=.3, 
     V = np.zeros(nS)
     V_track = np.zeros((n_episodes, nS))
 
-    # for each episode, collect experience
     for e in range(n_episodes):
         trajectory = _generate_trajectory(π, env, max_steps)
         visited = np.zeros(nS, dtype=np.bool)
 
-        # for each experience
         for t, (state, _, reward, _, _) in enumerate(trajectory):
             state_has_been_visited = visited[state]  # true or false
 
@@ -46,16 +44,39 @@ def mc_prediction(π, env, gamma=1., init_lr=.5, min_lr=.01, lr_decay_ratio=.3, 
 
             future_rewards = trajectory[t:, 2]  # rewards from this point until the end
             G = np.sum(discounts[:n_steps] * future_rewards)
-
-            error_estimate = (G - V[state])
-            V[state] = V[state] + lrs[e] * error_estimate
+            V[state] = V[state] + lrs[e] * (G - V[state])
         
         V_track[e] = V  # store the value of the entire episode for stats
-        
-    return V.copy(), V_track
-                
 
-    
+    return V.copy(), V_track
+
+
+def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, n_episodes=500):
+    """
+    Here we can update V as we go, no need to first generate a trajectory
+    """
+    nS = env.observation_space.n
+    V = np.zeros(nS)
+    V_track = np.zeros((n_episodes, nS))
+    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+
+    for e in range(n_episodes):
+        state, done = env.reset(), False
+        while not done:
+            action = π(state)
+            next_state, reward, done, _ = env.step(action)
+            episode_continue = not done
+
+            td_target = reward + gamma * V[next_state] * episode_continue
+            td_error = td_target - V[state]
+
+            V[state] += lrs[e] * td_error
+
+            state = next_state
+            
+        V_track[e] = V
+    return V, V_track
+                
 
 
 
@@ -72,7 +93,7 @@ def _decay_schedule(init_value, min_value, decay_ratio, max_steps, log_start=-2,
 
 
 def _generate_trajectory(π, env, max_steps=20):
-    """Generate set of experience tuple"""
+    """Generate set of experience tuple for 1 episode"""
     done, trajectory = False, []
     while not done:
         state = env.reset()
