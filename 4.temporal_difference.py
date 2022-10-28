@@ -37,7 +37,7 @@ def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_r
     return V, V_track
 
 
-def td_policy_evaluation(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+def sarsa(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
     nA = env.action_space.n                # number of actions
     Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
     lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
@@ -55,26 +55,60 @@ def td_policy_evaluation(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_
 
                 # Update Q
                 sarsa_experience = (state, action, reward, next_state, next_action)
-                Q[state][action] = _update_Q_td(Q, sarsa_experience, gamma, lrs[i_episode])
+                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], False)
 
                 state = next_state
                 action = next_action
 
             if done:
                 sarsa_experience = (state, action, reward, next_state, None)
-                Q[state][action] = _update_Q_td(Q, sarsa_experience, gamma, lrs[i_episode])
+                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], False)
                 break
     return Q
 
 
-def _update_Q_td(Q, sarsa_experience, gamma, lr):
+
+def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+    nA = env.action_space.n
+    Q = defaultdict(lambda: np.zeros(nA))
+    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    
+    
+    for i_episode in range(1, n_episodes+1): 
+        state = env.reset()
+        action = π(state)
+        
+        while True:
+            next_state, reward, done, _ = env.step(action)
+
+            if not done:
+                next_action = π(next_state)
+
+                # Update Q
+                sarsa_experience = (state, action, reward, next_state, next_action)
+                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
+
+                state = next_state
+                action = next_action
+
+            if done: break
+    return Q
+
+
+def _update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=False):
     state, action, reward, next_state, next_action = sarsa_experience
     current = Q[state][action]
-    Qsa_next = Q[next_state][next_action] if next_state is not None else 0    
+
+    if(use_sarsamax):
+        Qsa_next = np.max(Q[next_state]) if next_state is not None else 0  # for Q-learning
+    else:
+        Qsa_next = Q[next_state][next_action] if next_state is not None else 0   
+     
     target = reward + (gamma * Qsa_next)
     error = target - current
     estimate =  current + (lr * error)
     return estimate
+
 
 
     
