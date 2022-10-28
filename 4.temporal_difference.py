@@ -1,5 +1,6 @@
 import numpy as np
 from collections import namedtuple
+from collections import defaultdict, deque
 
 
 
@@ -34,6 +35,47 @@ def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_r
             
         V_track[e] = V
     return V, V_track
+
+
+def td_policy_evaluation(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+    nA = env.action_space.n                # number of actions
+    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    
+    
+    for i_episode in range(1, n_episodes+1): 
+        state = env.reset()
+        action = π(state)
+        
+        while True:
+            next_state, reward, done, _ = env.step(action)
+
+            if not done:
+                next_action = π(next_state)
+
+                # Update Q
+                sarsa_experience = (state, action, reward, next_state, next_action)
+                Q[state][action] = _update_Q_td(Q, sarsa_experience, gamma, lrs[i_episode])
+
+                state = next_state
+                action = next_action
+
+            if done:
+                sarsa_experience = (state, action, reward, next_state, None)
+                Q[state][action] = _update_Q_td(Q, sarsa_experience, gamma, lrs[i_episode])
+                break
+    return Q
+
+
+def _update_Q_td(Q, sarsa_experience, gamma, lr):
+    state, action, reward, next_state, next_action = sarsa_experience
+    current = Q[state][action]
+    Qsa_next = Q[next_state][next_action] if next_state is not None else 0    
+    target = reward + (gamma * Qsa_next)
+    error = target - current
+    estimate =  current + (lr * error)
+    return estimate
+
 
     
 def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.5, n_step=3, n_episodes=500):
@@ -81,7 +123,7 @@ def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ra
 
             if len(path) == 1 and path[0].done:
                 path = None
-                
+
         V_track[e] = V
     return V, V_track
                 
