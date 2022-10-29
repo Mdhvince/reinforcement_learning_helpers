@@ -38,6 +38,7 @@ def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_r
 
 
 def sarsa(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+    """Policy iteration alike"""
     nA = env.action_space.n                # number of actions
     Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
     lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
@@ -69,6 +70,13 @@ def sarsa(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot
 
 
 def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+    """
+    Value iteration alike. It directly learn the optimal value function, no need for policy
+    improvement step as opposed to sarsa, because it is directly taking the max action of the
+    target target policy instead of the next action.
+    Because q learning if acting in a different way (greedily) over the next state than the 
+    behavior policy (rhs of the error term), Q-learning is an Off Policy.
+    """
     nA = env.action_space.n
     Q = defaultdict(lambda: np.zeros(nA))
     lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
