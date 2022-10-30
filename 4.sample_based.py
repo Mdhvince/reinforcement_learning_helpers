@@ -102,7 +102,7 @@ def sarsa(
     nS = env.action_space.n                # number of states
     π_track = []                           # Hold the improved (greedy) policy per episode
 
-    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    Q = np.zeros((nS, nA), dtype=np.float64)  # initialize empty dictionary of arrays
     Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
 
     lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
@@ -110,15 +110,15 @@ def sarsa(
     
     
     for i_episode in range(1, n_episodes+1): 
-        state, done = env.reset(), False                            # at this point, we have S _ _ _ _
+        state, done = env.reset(), False                            # S _ _ _ _
         
         eps = epsilons[i_episode]
         lr = lrs[i_episode]
-        action = utils.epsilon_greedy(state, Q, eps)                # at this point, we have S A _ _ _
+        action = utils.epsilon_greedy(state, Q, eps)                # S A _ _ _
         
         while not done:
-            next_state, reward, done, _ = env.step(action)          # at this point, we have S A R S' _
-            next_action = utils.epsilon_greedy(next_state, Q, eps)  # at this point, we have S A R S' A'
+            next_state, reward, done, _ = env.step(action)          # S A R S' _
+            next_action = utils.epsilon_greedy(next_state, Q, eps)  # S A R S' A'
 
             # Update Q
             sarsa_experience = (state, action, reward, next_state, next_action)
@@ -149,14 +149,15 @@ def q_learning(
     Because q learning if acting in a different way (greedily) over the next state than the 
     behavior policy (rhs of the error term), Q-learning is an Off Policy.
 
-    We can see this algorithm as : Learning from others mistakes
+    We can see this algorithm as : Learning from others mistakes or learning to be great without
+    trying to be great.
     Solving the control problem
     """
     nA = env.action_space.n                # number of actions
     nS = env.action_space.n                # number of states
     π_track = []                           # Hold the improved (greedy) policy per episode
 
-    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    Q = np.zeros((nS, nA), dtype=np.float64)   # initialize empty dictionary of arrays
     Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
 
     lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
@@ -176,8 +177,11 @@ def q_learning(
             # Update Q : # Next action is not requiered for q_learning update
             sarsa_experience = (state, action, reward, next_state, None)
 
-            # the target will have a different policy (greedy) than the one used to interact with the env (utils.epsilon_greedy(state, Q, eps))
-            # use_sarsamax=True means we are going to use the target policy and not the behavior policy to update Q
+            # the target will have a different policy (greedy) than the one used to interact with
+            # the env (utils.epsilon_greedy(state, Q, eps))
+            # use_sarsamax=True means we are going to use the target policy and not the behavior
+            # policy to update Q
+            # So we are decoupling our behavior from learning
             Q[state][action] = utils.update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=True)
 
             state = next_state
@@ -191,6 +195,69 @@ def q_learning(
     greedy_policy_π = lambda s: { s: a for s, a in enumerate(np.argmax(final_Q, axis=1)) }[s]
 
     return final_Q, estimated_optimal_V, greedy_policy_π, Q_track, π_track
+
+
+def double_q_learning(env, gamma=1., n_episodes=500,
+    init_lr=.5, min_lr=.01, lr_decay_ratio=.3,
+    init_eps=1., min_eps=.1, eps_decay_ratio=.9):
+    """
+    In Sarsa we take at each step:
+    - the value of an estimate of the next state-action pair ==> Bias
+    In Q-learning we take at each step:
+    - the max value of an estimate of the next state-action pair ==> More biased: maximization bias
+    But what we need is:
+    - the max value of the next state-action pair.
+
+    So these methods are overestimation the action-value function
+    """
+    nA = env.action_space.n                # number of actions
+    nS = env.action_space.n                # number of states
+    π_track = []                           # Hold the improved (greedy) policy per episode
+
+    # initialize 2 value functions for a cross-validation strategy
+    # the estimate of one Q-function will helps validate the estimate of the other Q-function
+    Q1 = np.zeros((nS, nA), dtype=np.float64)
+    Q2 = np.zeros((nS, nA), dtype=np.float64) 
+    Q1_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)
+    Q2_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)
+
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
+    
+    for i_episode in range(1, n_episodes+1): 
+        state, done = env.reset(), False
+        
+        eps = epsilons[i_episode]
+        lr = lrs[i_episode]
+        
+        
+        while not done:
+            Q_mean = (Q1 + Q2) / 2.
+            action = utils.epsilon_greedy(state, Q_mean, eps)  # behavior policy
+            next_state, reward, done, _ = env.step(action)
+            sarsa_experience = state, action, reward, next_state, done 
+
+            # randomly choose to update Q1 or Q2
+            if np.random.randint(2): # 0 or 1
+                # update Q1
+                Q1 = utils.update_double_q(Q1, Q2, sarsa_experience, gamma, lr)
+            else:
+                # update Q2
+                Q1 = utils.update_double_q(Q2, Q1, sarsa_experience, gamma, lr)
+
+            state = next_state
+        
+        # episode completed
+        Q1_track[i_episode] = Q1
+        Q2_track[i_episode] = Q2
+        π_track.append(np.argmax(Q_mean, axis=1))
+
+    Q_track_mean = (Q1_track + Q2_track) / 2.
+    final_Q = Q_mean
+    estimated_optimal_V = np.max(final_Q, axis=1)
+    greedy_policy_π = lambda s: { s: a for s, a in enumerate(np.argmax(final_Q, axis=1)) }[s]
+
+    return final_Q, estimated_optimal_V, greedy_policy_π, Q_track_mean, π_track
 
 
 

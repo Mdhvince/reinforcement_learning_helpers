@@ -21,6 +21,17 @@ def update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=False):
     estimate =  estimate + (lr * error)
     return estimate
 
+def update_double_q(Q_to_update, other_Q, sarsa_experience, gamma, lr):
+    state, action, reward, next_state, done = sarsa_experience
+    estimate = Q_to_update[state][action]
+    argmax_Q_to_update = np.argmax(Q_to_update[next_state])
+
+    # we use the action Q_to_update - But from a state-value estimate done by other_Q
+    target = reward + gamma * other_Q[next_state][argmax_Q_to_update] * (not done)
+    error = target - estimate
+    estimate = estimate + lr * error
+    return estimate
+
 
 def epsilon_greedy(state, Q, eps):
     if np.random.random() > eps:
