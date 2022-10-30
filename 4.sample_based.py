@@ -5,14 +5,14 @@ from collections import defaultdict, deque
 
 
 """
-Here we combine exploration_exploitation with the balancing of short-long term rewards.
-Algorithms for learning simultanously from Sequential and Evaluative feedbacks
+Sample Based Methods
 """
 
-
+# Solving Prediction problems
 def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, n_episodes=500):
     """
-    Here we can update V as we go, no need to first generate a trajectory
+    Here we can update V as we go, no need to first generate a trajectory.
+    Solving the prediction problem
     """
     nS = env.observation_space.n
     V = np.zeros(nS)
@@ -36,90 +36,6 @@ def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_r
         V_track[e] = V
     return V, V_track
 
-
-def sarsa(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
-    """Policy iteration alike"""
-    nA = env.action_space.n                # number of actions
-    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
-    
-    
-    for i_episode in range(1, n_episodes+1): 
-        state = env.reset()
-        action = π(state)
-        
-        while True:
-            next_state, reward, done, _ = env.step(action)
-
-            if not done:
-                next_action = π(next_state)
-
-                # Update Q
-                sarsa_experience = (state, action, reward, next_state, next_action)
-                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], False)
-
-                state = next_state
-                action = next_action
-
-            if done:
-                sarsa_experience = (state, action, reward, next_state, None)
-                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], False)
-                break
-    return Q
-
-
-
-def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
-    """
-    Value iteration alike. It directly learn the optimal value function, no need for policy
-    improvement step as opposed to sarsa, because it is directly taking the max action of the
-    target target policy instead of the next action.
-    Because q learning if acting in a different way (greedily) over the next state than the 
-    behavior policy (rhs of the error term), Q-learning is an Off Policy.
-    """
-    nA = env.action_space.n
-    Q = defaultdict(lambda: np.zeros(nA))
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
-    
-    
-    for i_episode in range(1, n_episodes+1): 
-        state = env.reset()
-        action = π(state)
-        
-        while True:
-            next_state, reward, done, _ = env.step(action)
-
-            if not done:
-                next_action = π(next_state)
-
-                # Update Q
-                sarsa_experience = (state, action, reward, next_state, next_action)
-                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
-
-                state = next_state
-                action = next_action
-
-            if done: break
-    return Q
-
-
-def _update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=False):
-    state, action, reward, next_state, next_action = sarsa_experience
-    current = Q[state][action]
-
-    if(use_sarsamax):
-        Qsa_next = np.max(Q[next_state]) if next_state is not None else 0  # for Q-learning
-    else:
-        Qsa_next = Q[next_state][next_action] if next_state is not None else 0   
-     
-    target = reward + (gamma * Qsa_next)
-    error = target - current
-    estimate =  current + (lr * error)
-    return estimate
-
-
-
-    
 def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.5, n_step=3, n_episodes=500):
     """
     Bootstrap after n steps to estimate the value function instead of after one step as 
@@ -168,8 +84,111 @@ def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ra
 
         V_track[e] = V
     return V, V_track
-                
 
+
+# Solving control problems
+def sarsa(
+    π, env, gamma=1.,
+    init_lr=.5, min_lr=.01, lr_decay_ratio=.3,
+    init_eps=1., min_eps=.1, eps_decay_ratio=.9, n_episodes=500):
+    """
+    Solving the control problem
+    """
+    nA = env.action_space.n                # number of actions
+    nS = env.action_space.n                # number of states
+    π_track = []                           # Hold the improved (greedy) policy per episode
+
+    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
+
+    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    epsilons = _decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
+    
+    
+    for i_episode in range(1, n_episodes+1): 
+        state, done = env.reset(), False                       # at this point, we have S _ _ _ _
+        
+        eps = epsilons[i_episode]
+        lr = lrs[i_episode]
+        action = _epsilon_greedy(state, Q, eps)                # at this point, we have S A _ _ _
+        
+        while not done:
+            next_state, reward, done, _ = env.step(action)     # at this point, we have S A R S' _
+            next_action = _epsilon_greedy(next_state, Q, eps)  # at this point, we have S A R S' A'
+
+            # Update Q
+            sarsa_experience = (state, action, reward, next_state, next_action)
+            Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lr, False)
+
+            state = next_state
+            action = next_action
+        
+        # episode completed
+        Q_track[i_episode] = Q
+        π_track.append(np.argmax(Q, axis=1))
+
+    final_Q = Q
+    estimated_optimal_V = np.max(final_Q, axis=1)
+    greedy_policy_π = lambda s: { s: a for s, a in enumerate(np.argmax(final_Q, axis=1)) }[s]
+
+    return final_Q, estimated_optimal_V, greedy_policy_π, Q_track, π_track
+
+
+def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+    """
+    Value iteration alike. It directly learn the optimal value function, no need for policy
+    improvement step as opposed to sarsa, because it is directly taking the max action of the
+    target target policy instead of the next action.
+    Because q learning if acting in a different way (greedily) over the next state than the 
+    behavior policy (rhs of the error term), Q-learning is an Off Policy.
+    Solving the control problem
+    """
+    nA = env.action_space.n
+    Q = defaultdict(lambda: np.zeros(nA))
+    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    
+    
+    for i_episode in range(1, n_episodes+1): 
+        state = env.reset()
+        action = π(state)
+        
+        while True:
+            next_state, reward, done, _ = env.step(action)
+
+            if not done:
+                next_action = π(next_state)
+
+                # Update Q
+                sarsa_experience = (state, action, reward, next_state, next_action)
+                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
+
+                state = next_state
+                action = next_action
+
+            if done: break
+    return Q
+
+
+def _update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=False):
+    state, action, reward, next_state, next_action = sarsa_experience
+    estimate = Q[state][action]
+
+    if(use_sarsamax):
+        Qsa_next = np.max(Q[next_state]) if next_state is not None else 0  # for Q-learning
+    else:
+        Qsa_next = Q[next_state][next_action] if next_state is not None else 0   
+     
+    target = reward + (gamma * Qsa_next)
+    error = target - estimate
+    estimate =  estimate + (lr * error)
+    return estimate
+
+
+def _epsilon_greedy(state, Q, eps):
+    if np.random.random() > eps:
+        return np.argmax(Q[state])
+    else:
+        return np.random.randint(len(Q[state]))
 
 
 def _decay_schedule(init_value, min_value, decay_ratio, max_steps, log_start=-2, log_base=10):
