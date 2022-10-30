@@ -91,11 +91,12 @@ def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ra
 
 # Solving control problems
 def sarsa(
-    π, env, gamma=1.,
+    env, gamma=1., n_episodes=500,
     init_lr=.5, min_lr=.01, lr_decay_ratio=.3,
-    init_eps=1., min_eps=.1, eps_decay_ratio=.9, n_episodes=500):
+    init_eps=1., min_eps=.1, eps_decay_ratio=.9):
     """
-    Solving the control problem
+    Solving the control problem.
+    Learning on the job or Learning from own current mistakes
     """
     nA = env.action_space.n                # number of actions
     nS = env.action_space.n                # number of states
@@ -109,14 +110,14 @@ def sarsa(
     
     
     for i_episode in range(1, n_episodes+1): 
-        state, done = env.reset(), False                       # at this point, we have S _ _ _ _
+        state, done = env.reset(), False                            # at this point, we have S _ _ _ _
         
         eps = epsilons[i_episode]
         lr = lrs[i_episode]
         action = utils.epsilon_greedy(state, Q, eps)                # at this point, we have S A _ _ _
         
         while not done:
-            next_state, reward, done, _ = env.step(action)     # at this point, we have S A R S' _
+            next_state, reward, done, _ = env.step(action)          # at this point, we have S A R S' _
             next_action = utils.epsilon_greedy(next_state, Q, eps)  # at this point, we have S A R S' A'
 
             # Update Q
@@ -137,54 +138,61 @@ def sarsa(
     return final_Q, estimated_optimal_V, greedy_policy_π, Q_track, π_track
 
 
-def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3, plot_every=100, n_episodes=500):
+def q_learning(
+    env, gamma=1., n_episodes=500,
+    init_lr=.5, min_lr=.01, lr_decay_ratio=.3,
+    init_eps=1., min_eps=.1, eps_decay_ratio=.9):
     """
     Value iteration alike. It directly learn the optimal value function, no need for policy
     improvement step as opposed to sarsa, because it is directly taking the max action of the
     target target policy instead of the next action.
     Because q learning if acting in a different way (greedily) over the next state than the 
     behavior policy (rhs of the error term), Q-learning is an Off Policy.
+
+    We can see this algorithm as : Learning from others mistakes
     Solving the control problem
     """
-    nA = env.action_space.n
-    Q = defaultdict(lambda: np.zeros(nA))
+    nA = env.action_space.n                # number of actions
+    nS = env.action_space.n                # number of states
+    π_track = []                           # Hold the improved (greedy) policy per episode
+
+    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
+
     lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
-    
+    epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
     
     for i_episode in range(1, n_episodes+1): 
-        state = env.reset()
-        action = π(state)
+        state, done = env.reset(), False
         
-        while True:
+        eps = epsilons[i_episode]
+        lr = lrs[i_episode]
+        
+        
+        while not done:
+            action = utils.epsilon_greedy(state, Q, eps)  # behavior policy
             next_state, reward, done, _ = env.step(action)
 
-            if not done:
-                next_action = π(next_state)
+            # Update Q : # Next action is not requiered for q_learning update
+            sarsa_experience = (state, action, reward, next_state, None)
 
-                # Update Q
-                sarsa_experience = (state, action, reward, next_state, next_action)
-                Q[state][action] = utils.update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
+            # the target will have a different policy (greedy) than the one used to interact with the env (utils.epsilon_greedy(state, Q, eps))
+            # use_sarsamax=True means we are going to use the target policy and not the behavior policy to update Q
+            Q[state][action] = utils.update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=True)
 
-                state = next_state
-                action = next_action
+            state = next_state
+        
+        # episode completed
+        Q_track[i_episode] = Q
+        π_track.append(np.argmax(Q, axis=1))
 
-            if done: break
-    return Q
+    final_Q = Q
+    estimated_optimal_V = np.max(final_Q, axis=1)
+    greedy_policy_π = lambda s: { s: a for s, a in enumerate(np.argmax(final_Q, axis=1)) }[s]
 
-
-
-
+    return final_Q, estimated_optimal_V, greedy_policy_π, Q_track, π_track
 
 
 
 if __name__ == "__main__":
-    Experience = namedtuple('Experience', ['state', 'reward', 'next_state', 'done'])
-    path = []
-    path.append(Experience(0, 20, 9, 0))
-    path.append(Experience(1, 21, 9, 0))
-    path.append(Experience(2, 22, 9, 0))
-    path.append(Experience(3, 23, 9, 0))
-    path.append(Experience(4, 24, 9, 0))
-    path.append(Experience(5, 25, 9, 0))
-
-    print(np.array(path)[:, 1])
+    pass
