@@ -1,10 +1,17 @@
+from pathlib import Path
 from collections import namedtuple
 from collections import defaultdict
 
+from tqdm import tqdm
 import numpy as np
+import matplotlib.pyplot as plt
+import gym, gym_walk
+
 
 import utils
 
+
+SEEDS = (12, 34, 56, 78, 90)
 
 
 """
@@ -99,7 +106,7 @@ def sarsa(
     Learning on the job or Learning from own current mistakes
     """
     nA = env.action_space.n                # number of actions
-    nS = env.action_space.n                # number of states
+    nS = env.observation_space.n                # number of states
     π_track = []                           # Hold the improved (greedy) policy per episode
 
     Q = np.zeros((nS, nA), dtype=np.float64)  # initialize empty dictionary of arrays
@@ -109,7 +116,7 @@ def sarsa(
     epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
     
     
-    for i_episode in range(1, n_episodes+1): 
+    for i_episode in tqdm(range(n_episodes), leave=False):
         state, done = env.reset(), False                            # S _ _ _ _
         
         eps = epsilons[i_episode]
@@ -117,7 +124,7 @@ def sarsa(
         action = utils.epsilon_greedy(state, Q, eps)                # S A _ _ _
         
         while not done:
-            next_state, reward, done, _ = env.step(action)          # S A R S' _
+            next_state, reward, done, _, _ = env.step(action)          # S A R S' _
             next_action = utils.epsilon_greedy(next_state, Q, eps)  # S A R S' A'
 
             # Update Q
@@ -154,7 +161,7 @@ def q_learning(
     Solving the control problem
     """
     nA = env.action_space.n                # number of actions
-    nS = env.action_space.n                # number of states
+    nS = env.observation_space.n                # number of states
     π_track = []                           # Hold the improved (greedy) policy per episode
 
     Q = np.zeros((nS, nA), dtype=np.float64)   # initialize empty dictionary of arrays
@@ -211,20 +218,20 @@ def double_q_learning(env, gamma=1., n_episodes=500,
     So these methods are overestimation the action-value function
     """
     nA = env.action_space.n                # number of actions
-    nS = env.action_space.n                # number of states
+    nS = env.observation_space.n                # number of states
     π_track = []                           # Hold the improved (greedy) policy per episode
 
     # initialize 2 value functions for a cross-validation strategy
     # the estimate of one Q-function will helps validate the estimate of the other Q-function
     Q1 = np.zeros((nS, nA), dtype=np.float64)
-    Q2 = np.zeros((nS, nA), dtype=np.float64) 
+    Q2 = np.zeros((nS, nA), dtype=np.float64)
     Q1_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)
     Q2_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)
 
     lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
     epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
     
-    for i_episode in range(1, n_episodes+1): 
+    for i_episode in range(1, n_episodes+1):
         state, done = env.reset(), False
         
         eps = epsilons[i_episode]
@@ -262,4 +269,40 @@ def double_q_learning(env, gamma=1., n_episodes=500,
 
 
 if __name__ == "__main__":
-    pass
+    # Slippery Walk Seven env
+    env = gym.make('SlipperyWalkSeven-v0')
+    init_state = env.reset()
+    goal_state = 8
+    gamma = 0.99
+    n_episodes = 3000
+    P = env.env.P
+    n_cols, svf_prec, err_prec, avf_prec=9, 4, 2, 3
+    action_symbols=('<', '>')
+    limit_items, limit_value = 5, 0.0
+    cu_limit_items, cu_limit_value, cu_episodes = 10, 0.0, 100
+
+    # alpha and epsilon decay plot
+    plots_dir = Path("plots").mkdir(parents=True, exist_ok=True)
+    alpha_eps_name = "Alpha and epsilon schedules.png"
+    save_at = Path("plots") / alpha_eps_name
+
+    plt.plot(
+        utils.decay_schedule(0.5, 0.01, 0.5, n_episodes), '-', linewidth=2, label='Alpha schedule')
+    plt.plot(
+        utils.decay_schedule(1.0, 0.1, 0.9, n_episodes), ':', linewidth=2, label='Epsilon schedule')
+    
+    plt.legend(loc=1, ncol=1)
+    plt.title('Alpha and epsilon schedules')
+    plt.xlabel('Episodes')
+    plt.ylabel('Hyperparameter values')
+    plt.xticks(rotation=45)
+
+    plt.savefig(save_at)
+
+    Q_sarsa, V_sarsa, pi_sarsa, Q_track_sarsa, pi_track_sarsa = sarsa(env, gamma=gamma, n_episodes=n_episodes)
+
+    print(Q_sarsa)
+    print("****************************************")
+    print(V_sarsa)
+    print("****************************************")
+    print(pi_sarsa)
