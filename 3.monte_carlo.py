@@ -1,78 +1,65 @@
+from collections import defaultdict
+
 import numpy as np
 
-from itertools import count
+import utils
 
 
-"""
-Here we combine exploration_exploitation with the balancing of short-long term rewards.
-Algorithms for learning simultanously from Sequential and Evaluative feedbacks
-"""
-
-
-def mc_prediction(π, env, gamma=1., init_lr=.5, min_lr=.01, lr_decay_ratio=.3, n_episodes=500, max_steps=100, mode="FV"):
+def mc_control(
+    π, env, gamma=1.,
+    init_lr=.5, min_lr=.01, lr_decay_ratio=.3,
+    init_eps=1., min_eps=.1, eps_decay_ratio=.9,
+    n_episodes=500, max_steps=100, mode="FV"):
     """
-    We start with init_lr and decay its value down to min_lr within the first lr_decay_ratio*100 %
-    of n_episodes.
-    The algorithm works for first and every visit monte carlo.
-
-    Goal is to evaluate the value funtion.
-
-    - mode : FV or EV for First-Visit or Every-Visit Monte carlo
     """
     nS = env.observation_space.n
+    nA = env.action_space.n
+    π_track = []                           # Hold the improved (greedy) policy per episode
 
-    # Pre-compute the discount factors / learning rates
+    Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
+    Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
+
+    # Pre-compute the discount factors / learning rates / epsilons
     discounts = np.logspace( 0, max_steps, num=max_steps, base=gamma, endpoint=False)
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
 
-    # State-value function
-    V = np.zeros(nS)
-    V_track = np.zeros((n_episodes, nS))
 
     for e in range(n_episodes):
-        trajectory = _generate_trajectory(π, env, max_steps)
-        visited = np.zeros(nS, dtype=np.bool)
+        eps = epsilons[e]
+        lr = lrs[e]
 
-        for t, (state, _, reward, _, _) in enumerate(trajectory):
-            state_has_been_visited = visited[state]  # true or false
+        trajectory = utils.generate_trajectory(Q, eps, env, max_steps)
+        visited = np.zeros((nS, nA), dtype=np.bool)
+
+        for t, (state, action, reward, _, _) in enumerate(trajectory):
+            state_has_been_visited = visited[state][action]  # true or false
 
             if state_has_been_visited and mode == "FV":
                 # do not compute anything else if visited and FVMC is applied
                 continue
+            visited[state][action] = True
 
             n_steps = len(trajectory[:t])
 
             future_rewards = trajectory[t:, 2]  # rewards from this point until the end
             G = np.sum(discounts[:n_steps] * future_rewards)
-            V[state] = V[state] + lrs[e] * (G - V[state])
+            error = G - Q[state][action]
+            Q[state][action] = Q[state][action] + lr * error
         
-        V_track[e] = V  # store the value of the entire episode for stats
+        # episode completed
+        Q_track[e] = Q
+        π_track.append(np.argmax(Q, axis=1))
+    
+    final_Q = Q
+    estimated_optimal_V = np.max(final_Q, axis=1)
+    greedy_policy_π = lambda s: { s: a for s, a in enumerate(np.argmax(final_Q, axis=1)) }[s]
 
-    return V.copy(), V_track
+    return final_Q, estimated_optimal_V, greedy_policy_π, Q_track, π_track
 
 
 
-def _generate_trajectory(π, env, max_steps=20):
-    """Generate set of experience tuple for 1 episode"""
-    done, trajectory = False, []
-    while not done:
-        state = env.reset()
 
-        for t in count():  # equivalent of a while True : t+=1
-            action = π(state)
-            next_state, reward, done, _ = env.step(action)
-
-            experience = (state, action, reward, next_state, done)
-            trajectory.append(experience)
-
-            if done: break  # Episode ends and the trajectory has been successfully generated.
-
-            if t >= max_steps - 1: # No trajectory generated in the required window so we RETRY.
-                trajectory = []
-                break
-
-            state = next_state
-    return np.array(trajectory, np.object)
 
 
 

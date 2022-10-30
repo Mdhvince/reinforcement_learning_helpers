@@ -1,6 +1,9 @@
-import numpy as np
 from collections import namedtuple
-from collections import defaultdict, deque
+from collections import defaultdict
+
+import numpy as np
+
+import utils
 
 
 
@@ -17,7 +20,7 @@ def temporal_difference(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_r
     nS = env.observation_space.n
     V = np.zeros(nS)
     V_track = np.zeros((n_episodes, nS))
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
 
     for e in range(n_episodes):
         state, done = env.reset(), False
@@ -46,7 +49,7 @@ def n_step_td_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ra
     nS = env.observation_space.n
     V = np.zeros(nS)
     V_track = np.zeros((n_episodes, nS))
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
     discounts = np.logspace(0, n_step+1, num=n_step+1, base=gamma, endpoint=False)
     Experience = namedtuple('Experience', ['state', 'reward', 'next_state', 'done'])
 
@@ -101,8 +104,8 @@ def sarsa(
     Q = defaultdict(lambda: np.zeros(nA))  # initialize empty dictionary of arrays
     Q_track = np.zeros((n_episodes, nS, nA), dtype=np.float64)  # hold the estimated Q per episode
 
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
-    epsilons = _decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    epsilons = utils.decay_schedule(init_eps, min_eps, eps_decay_ratio, n_episodes)
     
     
     for i_episode in range(1, n_episodes+1): 
@@ -110,15 +113,15 @@ def sarsa(
         
         eps = epsilons[i_episode]
         lr = lrs[i_episode]
-        action = _epsilon_greedy(state, Q, eps)                # at this point, we have S A _ _ _
+        action = utils.epsilon_greedy(state, Q, eps)                # at this point, we have S A _ _ _
         
         while not done:
             next_state, reward, done, _ = env.step(action)     # at this point, we have S A R S' _
-            next_action = _epsilon_greedy(next_state, Q, eps)  # at this point, we have S A R S' A'
+            next_action = utils.epsilon_greedy(next_state, Q, eps)  # at this point, we have S A R S' A'
 
             # Update Q
             sarsa_experience = (state, action, reward, next_state, next_action)
-            Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lr, False)
+            Q[state][action] = utils.update_sarsa(Q, sarsa_experience, gamma, lr, False)
 
             state = next_state
             action = next_action
@@ -145,7 +148,7 @@ def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3,
     """
     nA = env.action_space.n
     Q = defaultdict(lambda: np.zeros(nA))
-    lrs = _decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
+    lrs = utils.decay_schedule(init_lr, min_lr, lr_decay_ratio, n_episodes)
     
     
     for i_episode in range(1, n_episodes+1): 
@@ -160,7 +163,7 @@ def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3,
 
                 # Update Q
                 sarsa_experience = (state, action, reward, next_state, next_action)
-                Q[state][action] = _update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
+                Q[state][action] = utils.update_sarsa(Q, sarsa_experience, gamma, lrs[i_episode], True)
 
                 state = next_state
                 action = next_action
@@ -169,38 +172,7 @@ def q_learning(π, env, gamma=1.0, init_lr=0.5, min_lr=0.01, lr_decay_ratio=0.3,
     return Q
 
 
-def _update_sarsa(Q, sarsa_experience, gamma, lr, use_sarsamax=False):
-    state, action, reward, next_state, next_action = sarsa_experience
-    estimate = Q[state][action]
 
-    if(use_sarsamax):
-        Qsa_next = np.max(Q[next_state]) if next_state is not None else 0  # for Q-learning
-    else:
-        Qsa_next = Q[next_state][next_action] if next_state is not None else 0   
-     
-    target = reward + (gamma * Qsa_next)
-    error = target - estimate
-    estimate =  estimate + (lr * error)
-    return estimate
-
-
-def _epsilon_greedy(state, Q, eps):
-    if np.random.random() > eps:
-        return np.argmax(Q[state])
-    else:
-        return np.random.randint(len(Q[state]))
-
-
-def _decay_schedule(init_value, min_value, decay_ratio, max_steps, log_start=-2, log_base=10):
-    """Learning rate decay algorithm for learning"""
-    decay_steps = int(max_steps * decay_ratio)
-    rem_steps = max_steps - decay_steps
-
-    values = np.logspace(log_start, 0, decay_steps, base=log_base, endpoint=True)[::-1]
-    values = (values - values.min()) / (values.max() - values.min())
-    values = (init_value - min_value) * values + min_value
-    values = np.pad(values, (0, rem_steps), 'edge')
-    return values
 
 
 
