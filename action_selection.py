@@ -31,7 +31,7 @@ class EGreedyStrategy():
         # we set exploration to True
         if(action != np.argmax(q_values)):
             self.exploratory_action_taken = True
-            
+
         return action
 
 

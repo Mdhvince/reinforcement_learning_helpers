@@ -1,6 +1,7 @@
 import gc
 from pathlib import Path
 from itertools import count
+import warnings ; warnings.filterwarnings('ignore')
 
 import gym
 import numpy as np
@@ -10,6 +11,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from action_selection import EGreedyStrategy, GreedyStrategy
+
+"""Value based"""
 
 
 
@@ -45,7 +48,6 @@ class FCQ(nn.Module):
         """
         Convert state to tensor if not and shape it correctly for the training process
         """
-        x = x[0]
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x, device=self.device, dtype=torch.float32)
             x = x.unsqueeze(0)
@@ -101,7 +103,7 @@ if __name__ == "__main__":
     evaluation_scores = []
 
     for i_episode in range(1, max_episodes + 1):
-        state, is_terminal = env.reset(), False
+        state, is_terminal = env.reset()[0], False
         episode_reward.append(0.0)
         episode_timestep.append(0.0)
         episode_exploration.append(0.0)
@@ -117,7 +119,6 @@ if __name__ == "__main__":
             # experience = (state, action, reward, new_state, float(is_failure))
             experience = (state, action, reward, new_state, float(is_terminal))
 
-            # Store experience
             experiences.append(experience)
 
             # For metrics
@@ -125,15 +126,21 @@ if __name__ == "__main__":
             episode_timestep[-1] += 1
             episode_exploration[-1] += int(interaction_strategy.exploratory_action_taken)
 
+            state = new_state
+
             if len(experiences) >= batch_size:
-                experiences = np.array(experiences)
-                batches = [np.vstack(sars) for sars in experiences.T]
-                experiences = net.format_experiences(batches)
+                xp = np.array(experiences)
+                # print(experiences)
+                # print("*********")
+                # raise
+
+                batches = [np.vstack(sars) for sars in xp.T]
+                xp_tensor = net.format_experiences(batches)
 
                 # train
                 for _ in range(epochs):
                     # working with batche of stateS / actionS / rewardS / is_terminalS
-                    states, actions, rewards, next_states, is_terminals = experiences
+                    states, actions, rewards, next_states, is_terminals = xp_tensor
                     batch_size = len(is_terminals)
                     
                     # target = expected discounted return at S+1
@@ -153,6 +160,7 @@ if __name__ == "__main__":
                     loss.backward()
                     optimizer.step()
 
+
                 experiences.clear()
             
             if is_terminal:
@@ -163,7 +171,7 @@ if __name__ == "__main__":
         R = []
         n_episodes = 50
         for _ in range(n_episodes):
-            state, done = env.reset(), False
+            state, done = env.reset()[0], False
             R.append(0)
             for _ in count():
                 a = evaluation_strategy.select_action(net, state)
