@@ -101,7 +101,11 @@ if __name__ == "__main__":
     episode_timestep = []
     episode_exploration = []
     evaluation_scores = []
+    all_results = []
 
+    # store result: total step, mean 100 rewards, mean 100 eval score per episode
+    result = np.empty((max_episodes, 3))
+    result[:] = np.nan
     for i_episode in range(1, max_episodes + 1):
         state, is_terminal = env.reset()[0], False
         episode_reward.append(0.0)
@@ -180,16 +184,21 @@ if __name__ == "__main__":
                 if done: break
 
         mean_reward_eval = np.mean(R)
-        ts = episode_timestep[-1]
         evaluation_scores.append(mean_reward_eval)
 
-        print(f"Episode {i_episode}")
-        print(f"#Timesteps done during training = {ts}")
-        print(f"Total reward of the episode during training = {episode_reward[-1]}")
-        print("*********************************************************************")
-        print(f"Mean eval reward = {mean_reward_eval}\n")
+        print(f"Completed: {round((i_episode/max_episodes) * 100, 2)} %", end="\r")
+
+
+        total_step = int(np.sum(episode_timestep))
+        mean_100_reward = np.mean(episode_reward[-100:])
+        mean_100_eval_score = np.mean(evaluation_scores[-100:])
+        result[i_episode-1] = total_step, mean_100_reward, mean_100_eval_score
+
 
         if mean_reward_eval >= max(evaluation_scores):
             torch.save(net.state_dict(), model_dir / f"model.{i_episode}.pt")
     
+
+    result_dir = Path("training_results")
+    result.tofile(result_dir / "FCQ_results.dat")
     print('\nTraining complete.')
