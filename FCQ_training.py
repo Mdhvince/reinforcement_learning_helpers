@@ -95,7 +95,7 @@ if __name__ == "__main__":
     interaction_strategy = EGreedyStrategy(epsilon=.5)
     evaluation_strategy = GreedyStrategy()
 
-    max_episodes = 500
+    max_episodes = 1000
     experiences = []
     episode_reward = []
     episode_timestep = []
