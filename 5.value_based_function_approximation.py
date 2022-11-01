@@ -32,12 +32,17 @@ class FCQ(nn.Module):
         
         self.out_layer = nn.Linear(hidden_dims[-1], out_dim)
 
-    def forward(self, x): # x is the state
-        
+    def _format(self, x):
+        """
+        Convert state to tensor if not and shape it correctly for the training process
+        """
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x, device=self.device, dtype=torch.float32)
             x = x.unsqueeze(0)
-        
+        return x
+
+    def forward(self, state):
+        x = self._format(state)
         x = self.activation(self.fc1(x))
 
         for fc_hidden in self.hidden_layers:
