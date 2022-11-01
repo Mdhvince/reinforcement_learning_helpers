@@ -4,3 +4,4 @@ __pycache__/
 notebooks/
 models/
 training_results/
+runs/

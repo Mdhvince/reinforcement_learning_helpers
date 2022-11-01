@@ -9,6 +9,8 @@ import torch
 from torch import nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
+
 
 from action_selection import EGreedyStrategy, GreedyStrategy
 
@@ -78,6 +80,8 @@ class FCQ(nn.Module):
 
 
 if __name__ == "__main__":
+    writer = SummaryWriter()
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Running on {device}\n")
 
@@ -85,7 +89,7 @@ if __name__ == "__main__":
     nS, nA = env.observation_space.shape[0], env.action_space.n
     lr = 0.0005
     batch_size = 1024
-    epochs = 40
+    epochs = 100
     gamma = 0.99
     model_dir = Path("models")
 
@@ -134,9 +138,6 @@ if __name__ == "__main__":
 
             if len(experiences) >= batch_size:
                 xp = np.array(experiences)
-                # print(experiences)
-                # print("*********")
-                # raise
 
                 batches = [np.vstack(sars) for sars in xp.T]
                 xp_tensor = net.format_experiences(batches)
@@ -183,22 +184,28 @@ if __name__ == "__main__":
                 R[-1] += reward
                 if done: break
 
+       
         mean_reward_eval = np.mean(R)
-        evaluation_scores.append(mean_reward_eval)
+        writer.add_scalar('Mean reard (Eval)', mean_reward_eval, i_episode)
 
-        print(f"Completed: {round((i_episode/max_episodes) * 100, 2)} %", end="\r")
-
-
-        total_step = int(np.sum(episode_timestep))
-        mean_100_reward = np.mean(episode_reward[-100:])
-        mean_100_eval_score = np.mean(evaluation_scores[-100:])
-        result[i_episode-1] = total_step, mean_100_reward, mean_100_eval_score
+        # evaluation_scores.append(mean_reward_eval)
+        # print(f"Completed: {round((i_episode/max_episodes) * 100, 2)} %", end="\r")
 
 
-        if mean_reward_eval >= max(evaluation_scores):
-            torch.save(net.state_dict(), model_dir / f"model.{i_episode}.pt")
+        # total_step = int(np.sum(episode_timestep))
+        # mean_100_reward = np.mean(episode_reward[-100:])
+        # mean_100_eval_score = np.mean(evaluation_scores[-100:])
+        # result[i_episode-1] = total_step, mean_100_reward, mean_100_eval_score
+
+
+        # if mean_reward_eval >= max(evaluation_scores):
+        #     torch.save(net.state_dict(), model_dir / f"model.{i_episode}.pt")
     
 
-    result_dir = Path("training_results")
-    result.tofile(result_dir / "FCQ_results.dat")
+    # result_dir = Path("training_results")
+    # result.tofile(result_dir / "FCQ_results.dat")
     print('\nTraining complete.')
+
+    
+    writer.flush()
+    writer.close()
