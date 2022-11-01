@@ -167,8 +167,17 @@ if __name__ == "__main__":
                 R[-1] += reward
                 if done: break
 
-        mean_reward = np.mean(R)
-        evaluation_scores.append(mean_reward)
-        print(f"Mean reward for Episode {i_episode} = {mean_reward}")
-        if mean_reward >= max(evaluation_scores):
+        mean_reward_eval = np.mean(R)
+        ts = episode_timestep[-1]
+        evaluation_scores.append(mean_reward_eval)
+
+        print(f"Episode {i_episode}")
+        print(f"#Timesteps done during training = {ts}")
+        print(f"Total reward of the episode during training = {episode_reward[-1]}")
+        print("*********************************************************************")
+        print(f"Mean eval reward = {mean_reward_eval}\n")
+
+        if mean_reward_eval >= max(evaluation_scores):
             torch.save(net.state_dict(), model_dir / f"model.{i_episode}.pt")
+    
+    print('\nTraining complete.')
