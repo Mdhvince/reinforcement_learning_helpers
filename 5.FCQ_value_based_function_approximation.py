@@ -2,6 +2,7 @@ import gc
 from pathlib import Path
 from itertools import count
 
+import gym
 import numpy as np
 import torch
 from torch import nn
@@ -44,6 +45,7 @@ class FCQ(nn.Module):
         """
         Convert state to tensor if not and shape it correctly for the training process
         """
+        x = x[0]
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x, device=self.device, dtype=torch.float32)
             x = x.unsqueeze(0)
@@ -71,14 +73,14 @@ class FCQ(nn.Module):
         rewards = torch.from_numpy(rewards).float().to(self.device)
         is_terminals = torch.from_numpy(is_terminals).float().to(self.device)
         return states, actions, new_states, rewards, is_terminals
-        
+
 
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Running on {device}\n")
 
-    env = None
-    nS, nA = None, None
+    env = env = gym.make("CartPole-v1")
+    nS, nA = env.observation_space.shape[0], env.action_space.n
     lr = 0.0005
     batch_size = 1024
     epochs = 40
@@ -108,10 +110,12 @@ if __name__ == "__main__":
 
             # ---> interact with the env
             action = interaction_strategy.select_action(net, state)
-            new_state, reward, is_terminal, info = env.step(action)
-            is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
-            is_failure = is_terminal and not is_truncated
-            experience = (state, action, reward, new_state, float(is_failure))
+
+            new_state, reward, is_terminal, info, _ = env.step(action)
+            # is_truncated = 'TimeLimit.truncated' in info and info['TimeLimit.truncated']
+            # is_failure = is_terminal and not is_truncated
+            # experience = (state, action, reward, new_state, float(is_failure))
+            experience = (state, action, reward, new_state, float(is_terminal))
 
             # Store experience
             experiences.append(experience)
@@ -163,7 +167,7 @@ if __name__ == "__main__":
             R.append(0)
             for _ in count():
                 a = evaluation_strategy.select_action(net, state)
-                state, reward, done, _ = env.step(a)
+                state, reward, done, *_ = env.step(a)
                 R[-1] += reward
                 if done: break
 
