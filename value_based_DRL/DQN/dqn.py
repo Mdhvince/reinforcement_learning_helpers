@@ -16,7 +16,7 @@ import torch.nn.functional as F
 from replay_buffer import ReplayBuffer
 from action_selection import GreedyStrategy, EGreedyExpStrategy
 
-DDQN = False
+DDQN = True
 
 
 class DQN(nn.Module):
@@ -140,7 +140,7 @@ class Agent():
         
         Q_expected = self.behavior_policy(states).gather(1, actions)
 
-        loss = F.mse_loss(Q_expected, Q_targets)
+        loss = F.huber_loss(Q_expected, Q_targets, delta=1.0)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     TRAIN_CONF = {
         "seed": 0, "batch_size": 64, "gamma": .99, "lr": .005,
         "n_episodes": 1000,
-        "update_every": 50,
+        "update_every": 150,
         "warmup_batch_size": 5,
         "strategy": EGreedyExpStrategy(),
         "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
