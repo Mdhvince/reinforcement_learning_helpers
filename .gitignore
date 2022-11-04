@@ -5,3 +5,4 @@ notebooks/
 models/
 training_results/
 runs/
+.neptune/

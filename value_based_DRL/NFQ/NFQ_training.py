@@ -1,3 +1,4 @@
+import os
 import gc
 from pathlib import Path
 from itertools import count
@@ -9,12 +10,9 @@ import torch
 from torch import nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
+import neptune.new as neptune
 
-
-from action_selection import EGreedyStrategy, GreedyStrategy
-
-"""Value based"""
+from value_based_DRL.action_selection import EGreedyStrategy, GreedyStrategy
 
 
 
@@ -45,6 +43,7 @@ class FCQ(nn.Module):
             self.hidden_layers.append(hidden_layer)
         
         self.out_layer = nn.Linear(hidden_dims[-1], out_dim)
+        self.to(self.device)
 
     def _format(self, x):
         """
@@ -80,16 +79,17 @@ class FCQ(nn.Module):
 
 
 if __name__ == "__main__":
-    writer = SummaryWriter()
+    token = os.environ['NEPTUNE_API_TOKEN']
+    run = neptune.init(project="mdhvince/ValueBasedRL", api_token=token)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Running on {device}\n")
 
-    env = env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1")
     nS, nA = env.observation_space.shape[0], env.action_space.n
     lr = 0.0005
     batch_size = 1024
-    epochs = 100
+    epochs = 30
     gamma = 0.99
     model_dir = Path("models")
 
@@ -107,9 +107,12 @@ if __name__ == "__main__":
     evaluation_scores = []
     all_results = []
 
+    params = {"learning_rate": lr, "optimizer": "RMSprop"}
+    run["parameters"] = params
+
     # store result: total step, mean 100 rewards, mean 100 eval score per episode
-    result = np.empty((max_episodes, 3))
-    result[:] = np.nan
+    # result = np.empty((max_episodes, 3))
+    # result[:] = np.nan
     for i_episode in range(1, max_episodes + 1):
         state, is_terminal = env.reset()[0], False
         episode_reward.append(0.0)
@@ -174,7 +177,7 @@ if __name__ == "__main__":
         
         # evaluate after one episode
         R = []
-        n_episodes = 50
+        n_episodes = 200
         for _ in range(n_episodes):
             state, done = env.reset()[0], False
             R.append(0)
@@ -185,17 +188,15 @@ if __name__ == "__main__":
                 if done: break
 
        
-        mean_reward_eval = np.mean(R)
-        writer.add_scalar('Mean reard (Eval)', mean_reward_eval, i_episode)
+        mean_reward_eval = np.mean(R)        
+        evaluation_scores.append(mean_reward_eval)
+        total_step = int(np.sum(episode_timestep))
+        mean_100_reward = np.mean(episode_reward[-100:])
+        mean_100_eval_score = np.mean(evaluation_scores[-100:])
 
-        # evaluation_scores.append(mean_reward_eval)
-        # print(f"Completed: {round((i_episode/max_episodes) * 100, 2)} %", end="\r")
-
-
-        # total_step = int(np.sum(episode_timestep))
-        # mean_100_reward = np.mean(episode_reward[-100:])
-        # mean_100_eval_score = np.mean(evaluation_scores[-100:])
-        # result[i_episode-1] = total_step, mean_100_reward, mean_100_eval_score
+        run["Total timestep per episode"].log(total_step)
+        run["Mean 100 reward per episode (Train)"].log(mean_100_reward)
+        run["Mean 100 reward per episode (Eval)"].log(mean_100_eval_score)
 
 
         # if mean_reward_eval >= max(evaluation_scores):
@@ -205,7 +206,4 @@ if __name__ == "__main__":
     # result_dir = Path("training_results")
     # result.tofile(result_dir / "FCQ_results.dat")
     print('\nTraining complete.')
-
-    
-    writer.flush()
-    writer.close()
+    run.stop()

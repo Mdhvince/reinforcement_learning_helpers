@@ -5,8 +5,8 @@ import gym
 import torch
 import matplotlib.pyplot as plt
 
-from FCQ_training import FCQ
-from action_selection import GreedyStrategy
+from NFQ_training import FCQ
+from value_based_DRL.action_selection import GreedyStrategy
 
 
 
