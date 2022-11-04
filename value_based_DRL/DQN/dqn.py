@@ -17,7 +17,6 @@ from replay_buffer import ReplayBuffer
 from action_selection import GreedyStrategy, EGreedyExpStrategy
 
 DDQN = False
-TAU = 1e-3 
 
 
 class DQN(nn.Module):
@@ -114,27 +113,27 @@ class Agent():
         return action, reward, next_state, done
 
     def sample_and_learn(self):
-        # - get and sample data from the replay buffer
-        # - perform inference using the TARGET network (DQN as well) with Sₜ₊₁ as input
-        # - Get the MAX Q value predicted: Q_target_next
-        # - Compute the first part of the error term: Q_target = R + (gamma * Q_targets_next) * (1 - done) this last term is because Q_target = R is the episode is over
-        # - perform inference using the LOCAL network (DQN as well) with S as input
-        # - Get the values predicted for the actions selected A during interractions : Q_local
-        # - Compute the second part using the LOCAL network: Q_expected
-        # - Get the loss using Q_expected and Q_target as input (mse loss)
-        # - Minimize the loss : self.optimizer.zero_grad(), loss.backward(), self.optimizer.step()
-        # - Finally update the Target network
 
         states, actions, rewards, next_states, dones = self.memory.sample(self.device)
         
         if DDQN:
+            """
+            Instead of asking the target policy what is the highest action values Q_targets.
+            We split the responsability between the target policy and the behavior policy:
+            First we ask the behavior policy : What is the action with highest value
+            Then we ask the target : What is the value of that action.
+
+            This sharing of responsability remove bias.
+            """
+            # Action that have the highest value: Index of action ==> FROM THE BEHAVIOR POLICY
             argmax_q_next = self.behavior_policy(next_states).detach().argmax(dim=1).unsqueeze(-1)
-            q_next = self.target_policy(next_states).gather(1, argmax_q_next)
-            Q_targets = rewards + (self.gamma * q_next * (1 - dones))
+
+            # Action-values of "best" actions  ==> FROM THE TARGET POLICY
+            Q_targets_next = self.target_policy(next_states).gather(1, argmax_q_next)
+            Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
         else:
-            # forward prop to get actions-values + take the max Q(Sₜ₊₁,a) of the next state
+            # hisghest action-values : Q(Sₜ₊₁,a)
             Q_targets_next = self.target_policy(next_states).detach().max(1)[0].unsqueeze(1)
-            # use bellman equation to compute optimal action-value function of the current state
             Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
 
         
