@@ -158,7 +158,7 @@ if __name__ == "__main__":
 
     ENV_CONF = { "nS": nS, "nA": nA }
 
-    AGENT_CONF = { "memory_capacity": 10000 }
+    AGENT_CONF = { "memory_capacity": 50000 }
 
     TRAIN_CONF = {
         "seed": 0, "batch_size": 64, "gamma": .99, "lr": .005,
