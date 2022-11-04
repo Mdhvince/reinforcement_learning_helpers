@@ -123,7 +123,8 @@ class Agent():
             First we ask the behavior policy : What is the action with highest value
             Then we ask the target : What is the value of that action.
 
-            This sharing of responsability remove bias.
+            This sharing of responsability reduce the bias by reducing the overestimation of
+            Q-values.
             """
             # Action that have the highest value: Index of action ==> FROM THE BEHAVIOR POLICY
             argmax_q_next = self.behavior_policy(next_states).detach().argmax(dim=1).unsqueeze(-1)
