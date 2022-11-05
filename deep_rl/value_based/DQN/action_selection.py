@@ -2,6 +2,19 @@ import torch
 import numpy as np
 
 
+def e_greedy_action_selection(model, state, epsilon, nA):
+    if np.random.rand() > epsilon:
+        model.eval()
+        with torch.no_grad():
+            q_values = model(state).cpu().detach().data.numpy().squeeze()
+        model.train()
+        action = np.argmax(q_values)
+    else:
+        action = np.random.randint(nA)
+
+    return action
+
+
 class GreedyStrategy():
     def __init__(self):
         self.exploratory_action_taken = False
@@ -17,21 +30,8 @@ class EGreedyStrategy():
         self.epsilon = epsilon
         self.exploratory_action_taken = None
 
-    def select_action(self, model, state):
-        self.exploratory_action_taken = False
-        with torch.no_grad():
-            q_values = model(state).cpu().detach().data.numpy().squeeze()
-
-        if np.random.rand() > self.epsilon:
-            action = np.argmax(q_values)
-        else: 
-            action = np.random.randint(len(q_values))
-
-        # when selecting a random action, if this random action is not the max action
-        # we set exploration to True
-        if(action != np.argmax(q_values)):
-            self.exploratory_action_taken = True
-
+    def select_action(self, model, state, nA):
+        action = e_greedy_action_selection(model, state, self.epsilon, nA)
         return action
 
 
@@ -51,18 +51,9 @@ class EGreedyLinearStrategy():
         self.t += 1
         return epsilon
 
-    def select_action(self, model, state):
-        self.exploratory_action_taken = False
-        with torch.no_grad():
-            q_values = model(state).cpu().detach().data.numpy().squeeze()
-
-        if np.random.rand() > self.epsilon:
-            action = np.argmax(q_values)
-        else: 
-            action = np.random.randint(len(q_values))
-
+    def select_action(self, model, state, nA):        
+        action = e_greedy_action_selection(model, state, self.epsilon, nA)
         self.epsilon = self._epsilon_update()
-        self.exploratory_action_taken = action != np.argmax(q_values)
         return action
 
 
@@ -82,18 +73,9 @@ class EGreedyExpStrategy():
         self.t += 1
         return self.epsilon
 
-    def select_action(self, model, state):
-        self.exploratory_action_taken = False
-        with torch.no_grad():
-            q_values = model(state).detach().cpu().data.numpy().squeeze()
-
-        if np.random.rand() > self.epsilon:
-            action = np.argmax(q_values)
-        else:
-            action = np.random.randint(len(q_values))
-
+    def select_action(self, model, state, nA):        
+        action = e_greedy_action_selection(model, state, self.epsilon, nA)
         self._epsilon_update()
-        self.exploratory_action_taken = action != np.argmax(q_values)
         return action
 
 
@@ -121,6 +103,7 @@ class SoftMaxStrategy():
         self.exploratory_action_taken = False
         temp = self._update_temp()
 
+        model.eval()
         with torch.no_grad():
             q_values = model(state).cpu().detach().data.numpy().squeeze()
             scaled_qs = q_values/temp
@@ -128,6 +111,7 @@ class SoftMaxStrategy():
             e = np.exp(norm_qs)
             probs = e / np.sum(e)
             assert np.isclose(probs.sum(), 1.0)
+        model.train()
 
         action = np.random.choice(np.arange(len(probs)), size=1, p=probs)[0]
         self.exploratory_action_taken = action != np.argmax(q_values)

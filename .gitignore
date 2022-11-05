@@ -6,3 +6,4 @@ models/
 training_results/
 runs/
 .neptune/
+docker/
