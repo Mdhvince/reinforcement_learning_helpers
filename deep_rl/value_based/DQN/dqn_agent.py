@@ -9,7 +9,7 @@ from torch import nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from dqn import DQN
+from dqns import DQN
 from replay_buffer import ReplayBuffer
 from action_selection import EGreedyExpStrategy
 
@@ -25,6 +25,7 @@ class Agent():
         self.device = training_conf["device"]
         self.strategy = training_conf["strategy"]
         self.use_ddqn = training_conf["use_ddqn"]
+        self.tau = training_conf["tau"]
 
         self.memory_capacity = agent_conf["memory_capacity"]
         self.memory = ReplayBuffer(self.memory_capacity, self.batch_size, self.seed)
@@ -83,9 +84,33 @@ class Agent():
         self.optimizer.step()
 
     
-    def sync_weights(self):
-        for t, b in zip(self.target_policy.parameters(), self.behavior_policy.parameters()):
-            t.data.copy_(b.data)
+    def sync_weights(self, use_polyak_averaging=True):
+        if(use_polyak_averaging):
+            """
+            Instead of freezing the target and doing a big update every n steps, we can slow down
+            the target by mixing a big % of weight from the target and a small % from the 
+            behavior policy. So the update will be smoother and continuous at each time step.
+            For example we add 1% of new information learned by the behavior policy to the target
+            policy at every step.
+
+            - self.tau: ratio of the behavior network that will be mixed into the target network.
+            tau = 1 means full update (100%)
+            """
+            if self.tau is None:
+                raise Exception("You are using Polyak averaging but TAU is None")
+            
+            for t, b in zip(self.target_policy.parameters(), self.behavior_policy.parameters()):
+                target_ratio = (1.0 - self.tau) * t.data
+                behavior_ratio = self.tau * b.date
+                mixed_weights = target_ratio + behavior_ratio
+                t.data.copy_(mixed_weights.data)
+        else:
+            """
+            target network was frozen during n steps, now we are update it with the behavior network
+            weight.
+            """
+            for t, b in zip(self.target_policy.parameters(), self.behavior_policy.parameters()):
+                t.data.copy_(b.data)
 
 
 
@@ -98,7 +123,7 @@ if __name__ == "__main__":
     AGENT_CONF = { "memory_capacity": 50000 }
 
     TRAIN_CONF = {
-        "seed": 0, "batch_size": 64, "gamma": .99, "lr": .005,
+        "seed": 0, "batch_size": 64, "gamma": .99, "lr": .005, "tau": None,
         "use_ddqn": True,
         "n_episodes": 1000,
         "update_every": 150,
