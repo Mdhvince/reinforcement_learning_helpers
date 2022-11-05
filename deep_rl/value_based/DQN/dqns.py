@@ -51,7 +51,7 @@ class DQN(nn.Module):
         return x
 
 
-class DDQN(nn.Module):
+class DuelingDQN(nn.Module):
     """
     Dueling Deep Q-Network Architechture.
     Same as DQN but using 2 outputs : One for the State-value function (return a single number)
@@ -59,7 +59,7 @@ class DDQN(nn.Module):
     """
 
     def __init__(self, device, in_dim, out_dim, hidden_dims=(32, 32), activation=F.relu) -> None:
-        super(DDQN, self).__init__()
+        super(DuelingDQN, self).__init__()
 
         self.device = device
         self.activation = activation

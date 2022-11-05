@@ -9,7 +9,7 @@ from torch import nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from dqns import DQN
+from dqns import DQN, DuelingDQN
 from replay_buffer import ReplayBuffer
 from action_selection import EGreedyExpStrategy
 
@@ -25,6 +25,7 @@ class Agent():
         self.device = training_conf["device"]
         self.strategy = training_conf["strategy"]
         self.use_ddqn = training_conf["use_ddqn"]
+        self.use_dueling = training_conf["use_dueling"]
         self.tau = training_conf["tau"]
 
         self.memory_capacity = agent_conf["memory_capacity"]
@@ -33,11 +34,20 @@ class Agent():
         nS = env_conf["nS"]
         nA = env_conf["nA"]
 
-        self.behavior_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
-        self.target_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+        if training_conf["use_dueling"]:
+            self.behavior_policy = DuelingDQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+            self.target_policy = DuelingDQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+        else:
+            self.behavior_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+            self.target_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+
         self.optimizer = optim.RMSprop(self.behavior_policy.parameters(), lr=lr)
 
         print("\nAll good, let's start\n")
+        print(f"- Running on: {self.device}")
+        print(f"- Use Double DQN for estimation: {self.use_ddqn}")
+        print(f"- Use Dueling architecture: {self.use_dueling}")
+        print(f"- Network: {self.behavior_policy}\n")
     
 
     def store_experience(self, state, action, reward, next_state, done):
@@ -101,7 +111,7 @@ class Agent():
             
             for t, b in zip(self.target_policy.parameters(), self.behavior_policy.parameters()):
                 target_ratio = (1.0 - self.tau) * t.data
-                behavior_ratio = self.tau * b.date
+                behavior_ratio = self.tau * b.data
                 mixed_weights = target_ratio + behavior_ratio
                 t.data.copy_(mixed_weights.data)
         else:
@@ -123,8 +133,8 @@ if __name__ == "__main__":
     AGENT_CONF = { "memory_capacity": 50000 }
 
     TRAIN_CONF = {
-        "seed": 0, "batch_size": 64, "gamma": .99, "lr": .005, "tau": None,
-        "use_ddqn": True,
+        "seed": 0, "batch_size": 64, "gamma": .99, "lr": .01, "tau": 0.1,
+        "use_ddqn": True, "use_dueling": True,
         "n_episodes": 1000,
         "update_every": 150,
         "warmup_batch_size": 5,
@@ -155,16 +165,17 @@ if __name__ == "__main__":
 
             if len(agent.memory) > bs * warmup_bs:
                 agent.sample_and_learn()  # one step optimization on the behavior policy
-
-            if total_steps % every == 0:
-                agent.sync_weights()
+                agent.sync_weights(use_polyak_averaging=True)
+            
+            # if total_steps % every == 0:
+            #     agent.sync_weights()
 
             if done: break
 
             score += reward
         scores_window.append(score)
 
-        if i_episode % last_n_score == 0:
-            print(f"Episode {i_episode}\tAverage {last_n_score} scores: {np.mean(scores_window)}")
+        # if i_episode % last_n_score == 0:
+        print(f"Episode {i_episode}\tAverage {last_n_score} scores: {np.mean(scores_window)}", end="\r")
                 
     
