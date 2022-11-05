@@ -94,9 +94,7 @@ class DuelingDQN(nn.Module):
         advantage = self.advantage_value_output(x)
         state_value = self.state_value_output(x)
 
-        # we could stop here and then use an agent specific to DDQN. But here I'm gonna reconstruct
-        # the Action-value function Q, so I can use the Agent from DQN, then I will recover A and V
-        # from Q.
+        # The fact that A and V are separated yield the ability to capture different features
 
         # A = Q - V  --> Q = V + A
         # But once we have Q, we cannot recover uniquely V and A...
