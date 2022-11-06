@@ -88,7 +88,7 @@ class Agent():
         
         Q_expected = self.behavior_policy(states).gather(1, actions)
 
-        loss = F.huber_loss(Q_expected, Q_targets, delta=1.0)
+        loss = F.huber_loss(Q_expected, Q_targets, delta=np.inf)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -128,15 +128,17 @@ if __name__ == "__main__":
     env = gym.make("CartPole-v1")
     nS, nA = env.observation_space.shape[0], env.action_space.n
 
-    ENV_CONF = { "nS": nS, "nA": nA }
-
-    AGENT_CONF = { "memory_capacity": 50000 }
-
+    ENV_CONF = {
+        "nS": nS, "nA": nA
+    }
+    AGENT_CONF = {
+        "memory_capacity": 50000
+    }
     TRAIN_CONF = {
         "seed": 0, "batch_size": 64, "gamma": .99, "lr": .01, "tau": 0.1,
         "use_ddqn": True, "use_dueling": True,
         "n_episodes": 1000,
-        "update_every": 150,
+        "update_every": 20,
         "warmup_batch_size": 5,
         "strategy": EGreedyExpStrategy(),
         "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -166,16 +168,13 @@ if __name__ == "__main__":
             if len(agent.memory) > bs * warmup_bs:
                 agent.sample_and_learn()  # one step optimization on the behavior policy
                 agent.sync_weights(use_polyak_averaging=True)
-            
-            # if total_steps % every == 0:
-            #     agent.sync_weights()
 
             if done: break
-
             score += reward
+
         scores_window.append(score)
 
-        # if i_episode % last_n_score == 0:
-        print(f"Episode {i_episode}\tAverage {last_n_score} scores: {np.mean(scores_window)}", end="\r")
+        if i_episode % 10 == 0:
+            print(f"Episode {i_episode}\tAverage {last_n_score} scores: {np.mean(scores_window)}")
                 
     
