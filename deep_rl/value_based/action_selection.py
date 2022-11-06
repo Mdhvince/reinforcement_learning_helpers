@@ -11,7 +11,6 @@ def e_greedy_action_selection(model, state, epsilon, nA):
         action = np.argmax(q_values)
     else:
         action = np.random.randint(nA)
-
     return action
 
 

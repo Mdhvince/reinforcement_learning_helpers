@@ -125,7 +125,7 @@ class Agent():
 
 
 if __name__ == "__main__":
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1", render_mode="human")
     nS, nA = env.observation_space.shape[0], env.action_space.n
 
     ENV_CONF = {
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     scores_window = deque(maxlen=last_n_score)
 
     for i_episode in range(1, TRAIN_CONF["n_episodes"] + 1):
-        state, is_terminal = env.reset()[0], False
+        state, is_terminal = env.reset(seed=TRAIN_CONF["seed"])[0], False
         score = 0
 
         for t_step in count():
@@ -178,3 +178,4 @@ if __name__ == "__main__":
             print(f"Episode {i_episode}\tAverage {last_n_score} scores: {np.mean(scores_window)}")
                 
     
+    env.close()
