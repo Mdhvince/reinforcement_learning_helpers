@@ -33,8 +33,8 @@ class A3C():
         nA = ENV_CONF["nA"]
         self.device = TRAIN_CONF["device"]
         self.gamma = TRAIN_CONF["gamma"]
-        lr_p = TRAIN_CONF.lrs[0]
-        lr_v = TRAIN_CONF.lrs[1]
+        lr_p = TRAIN_CONF["lrs"][0]
+        lr_v = TRAIN_CONF["lrs"][1]
         self.seed = TRAIN_CONF["seed"]
 
         # Define policy network and shared policy network
@@ -61,70 +61,125 @@ class A3C():
 
         self.get_out_lock = mp.Lock()
         self.get_out_signal = torch.zeros(1, dtype=torch.int).share_memory_()
-        
 
         self.entropy_loss_weight = 0.001
-        self.max_n_steps = TRAIN_CONF.max_n_steps
-        self.n_workers = TRAIN_CONF.n_workers
+        self.max_n_steps = TRAIN_CONF["max_n_steps"]
+        self.n_workers = TRAIN_CONF["n_workers"]
 
-        self.logpas = []
-        self.rewards = []
-        self.entropies = []
-        self.values = []
+        print("Initialized")
+
+
+    def work(self, rank):
+        local_seed = self.seed + rank
+        env = gym.make("CartPole-v1")
+
+        torch.manual_seed(local_seed)
+        np.random.seed(local_seed)
+        random.seed(local_seed)
+
+        nS, nA = env.observation_space.shape[0], env.action_space.n
+
+        hidden_dims = (128, 64)
+        local_policy_model = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
+        local_policy_model.load_state_dict(self.shared_policy.state_dict())
+
+        hidden_dims=(256, 128)
+        local_value_model = FCV(self.device, nS, hidden_dims=hidden_dims).to(self.device)
+        local_value_model.load_state_dict(self.shared_value_model.state_dict())
+
+        # while not self.get_out_signal:
+        for _ in range(2):
+            state, is_terminal = env.reset(seed=local_seed)[0], False
+
+            n_steps_start = 0
+            logpas, entropies, rewards, values = [], [], [], []
+            for t_step in count(start=1):
+                next_state, reward, is_terminal = self.interact_with_environment(
+                    local_policy_model, local_value_model, state, env,
+                    logpas, entropies, rewards, values
+                )
+                print(logpas)
+                state = next_state
+
+                if is_terminal or t_step - n_steps_start == self.max_n_steps:
+                    next_value = 0 if is_terminal else local_value_model(state).detach().item()
+                    rewards.append(next_value)
+
+                    self.learn(
+                        logpas, entropies, rewards, values, local_policy_model, local_value_model)
+                    
+                    logpas, entropies, rewards, values = [], [], [], []
+                
+                if is_terminal:
+                    break
 
     
-    def interact_with_environment(self, state, env):
-        self.policy.train()
-        action, logpa, entropy = self.policy.full_pass(state)
+    def interact_with_environment(
+        self, local_policy_model, local_value_model, state, env,
+        logpas, entropies, rewards, values):
+
+        action, logpa, entropy = local_policy_model.full_pass(state)
         next_state, reward, is_terminal, _, _ = env.step(action)
 
-        self.logpas.append(logpa)
-        self.rewards.append(reward)
-        self.entropies.append(entropy)
-        self.values.append(self.value_model(state))
+        logpas.append(logpa)
+        rewards.append(reward)
+        entropies.append(entropy)
+        values.append(local_value_model(state))
 
-        return next_state, is_terminal
+        return next_state, reward, is_terminal
     
 
-    def learn(self):
+    def learn(self, logpas, entropies, rewards, values, local_policy_model, local_value_model):
         """
-        Learn once full trajectory is collected
+        Learn once n-step trajectory is collected
         """
-        T = len(self.rewards)
+        T = len(rewards)
         discounts = np.logspace(0, T, num=T, base=self.gamma, endpoint=False)
-        returns = np.array([np.sum(discounts[:T-t] * self.rewards[t:]) for t in range(T)])
+        returns = np.array([np.sum(discounts[:T-t] * rewards[t:]) for t in range(T)])
         discounts = torch.FloatTensor(discounts[:-1]).unsqueeze(1)
         returns = torch.FloatTensor(returns[:-1]).unsqueeze(1)
 
-        self.logpas = torch.cat(self.logpas)
-        self.entropies = torch.cat(self.entropies) 
-        self.values = torch.cat(self.values)
+        logpas = torch.cat(logpas)
+        entropies = torch.cat(entropies) 
+        values = torch.cat(values)
 
         # --------------------------------------------------------------------
         # A(St, At) = Gt - V(St)
         # Loss = -1/N * sum_0_to_N( A(St, At) * log πθ(At|St) + βH )
 
-        advantage = returns - self.values
-        policy_loss = -(discounts * advantage.detach() * self.logpas).mean()
-        entropy_loss_H = -self.entropies.mean()
+        advantage = returns - values
+        policy_loss = -(discounts * advantage.detach() * logpas).mean()
+        entropy_loss_H = -entropies.mean()
         loss = policy_loss + self.entropy_loss_weight * entropy_loss_H
 
-        self.p_optimizer.zero_grad()
+        self.shared_p_optimizer.zero_grad()
         loss.backward()
-        # clip the gradient
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.policy_model_max_grad_norm)
-        self.p_optimizer.step()
+        torch.nn.utils.clip_grad_norm_(
+            local_policy_model.parameters(), self.policy_model_max_grad_norm)
+
+        self._update_shared_network(local_policy_model, self.shared_policy_model)
+        self.shared_p_optimizer.step()
+        local_policy_model.load_state_dict(self.shared_policy_model.state_dict())
 
         # --------------------------------------------------------------------
         # A(St, At) = Gt - V(St)
         # Loss = 1/N * sum_0_to_N( A(St, At)² )
 
         value_loss = advantage.pow(2).mul(0.5).mean()
-        self.v_optimizer.zero_grad()
+        self.shared_v_optimizer.zero_grad()
         value_loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            self.value_model.parameters(), self.value_model_max_grad_norm)
-        self.v_optimizer.step()
+            local_value_model.parameters(), self.value_model_max_grad_norm)
+
+        self._update_shared_network(local_value_model, self.shared_value_model)
+        self.shared_v_optimizer.step()
+        local_value_model.load_state_dict(self.shared_value_model.state_dict())
+
+
+    def _update_shared_network(self, local, shared):
+        for param, shared_param in zip(local.parameters(), shared.parameters()):
+            if shared_param.grad is None:
+                shared_param._grad = param.grad
 
 
     def evaluate(self, env, n_episodes=1):
@@ -145,26 +200,13 @@ class A3C():
         return np.mean(eval_scores), np.std(eval_scores)
 
 
-    def reset_metrics(self):
-        self.logpas = []
-        self.rewards = []
-        self.entropies = []
-        self.values = []
-
 
 if __name__ == "__main__":
 
-    EVALUATE_ONLY = True
-
-    if EVALUATE_ONLY:
-        env = gym.make("CartPole-v1", render_mode="human")
-    else:
-        env = gym.make("CartPole-v1")
-        
+    env = gym.make("CartPole-v1")    
     nS, nA = env.observation_space.shape[0], env.action_space.n
 
     ENV_CONF = { "nS": nS, "nA": nA }
-
     TRAIN_CONF = {
         "seed": 42, "gamma": .99, "lrs": [0.0005, 0.0007], "n_episodes": 5000,
         "goal_mean_100_reward": 700, "max_n_steps": 50, "n_workers": 8,
@@ -172,41 +214,17 @@ if __name__ == "__main__":
     }
     model_path = Path("deep_rl/policy_based_policy_gradient/A3C_cartpolev1.pt")
 
-    torch.manual_seed(TRAIN_CONF.seed)
-    np.random.seed(TRAIN_CONF.seed)
-    random.seed(TRAIN_CONF.seed)
+    torch.manual_seed(TRAIN_CONF["seed"])
+    np.random.seed(TRAIN_CONF["seed"])
+    random.seed(TRAIN_CONF["seed"])
 
     agent = A3C(ENV_CONF, TRAIN_CONF)
     
-    if EVALUATE_ONLY:
-        agent.policy.load_state_dict(torch.load(model_path))
-        mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
-    else:
-        evaluation_scores = deque(maxlen=100)
+    evaluation_scores = deque(maxlen=100)
+    workers = [mp.Process(target=agent.work, args=(rank,)) for rank in range(agent.n_workers)]
+    [w.start() for w in workers]
+    [w.join() for w in workers]
 
-        for i_episode in range(1, TRAIN_CONF["n_episodes"] + 1):
-            state, is_terminal = env.reset(seed=TRAIN_CONF.seed)[0], False
-
-            agent.reset_metrics()
-            for t_step in count():
-                new_state, is_terminal = agent.interact_with_environment(state, env)
-                state = new_state
-
-                if is_terminal: break
-            
-            next_value = 0 if is_terminal else agent.value_model(state).detach().item()
-            agent.rewards.append(next_value)
-            
-            agent.learn()
-            mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
-            evaluation_scores.append(mean_eval_score)
-
-            if len(evaluation_scores) >= 100:
-                mean_100_eval_score = np.mean(evaluation_scores)
-                print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
-
-                if(mean_100_eval_score >= TRAIN_CONF.goal_mean_100_reward):
-                    torch.save(agent.policy.state_dict(), model_path)
-                    break
+    print("Completed!")
 
     env.close()
