@@ -34,12 +34,14 @@ class Agent():
         nS = env_conf["nS"]
         nA = env_conf["nA"]
 
+        hidden_dims = (512, 128)
+
         if training_conf["use_dueling"]:
-            self.behavior_policy = DuelingDQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
-            self.target_policy = DuelingDQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+            self.behavior_policy = DuelingDQN(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
+            self.target_policy = DuelingDQN(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
         else:
-            self.behavior_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
-            self.target_policy = DQN(self.device, nS, nA, hidden_dims=(512, 128)).to(self.device)
+            self.behavior_policy = DQN(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
+            self.target_policy = DQN(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
 
         self.optimizer = optim.RMSprop(self.behavior_policy.parameters(), lr=lr)
 
@@ -125,7 +127,7 @@ class Agent():
 
 
 if __name__ == "__main__":
-    env = gym.make("CartPole-v1", render_mode="human")
+    env = gym.make("CartPole-v1") #, render_mode="human")
     nS, nA = env.observation_space.shape[0], env.action_space.n
 
     ENV_CONF = {
