@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from itertools import count
 from collections import deque
@@ -6,39 +7,25 @@ import warnings ; warnings.filterwarnings('ignore')
 import gym
 import numpy as np
 import torch
-import torch.optim as optim
+import torch.multiprocessing as mp
 
 from fc import FCDAP, FCV
+from shared_optimizers import SharedAdam, SharedRMSprop
 
-"""Vanilla Policy Gradient (VPG) or REINFORCE with baseline
+"""Asynchronous Advantage Actor-Critic
 
-In REINFORCE we full monte carlo returns to calculate the gradient : High variance because of the
-accumulation of random event along a trajectory.
-To deal with this variance, we use Vanilla Policy Gradient.
+VPG still uses MC returns. In A3C we use n-step return collected from multiple workers.
+These workers update their local networks and a shared network asynchronously.
 
-Issue:
-Log probabilities are changing proportionally to the return : Gt(τ) ▽θ log πθ(At|St).
-If we are in an evironement with only positive rewards (like the cartpole environment) we need
-a way to differenciate "ok actions" & "best actions" : 
-- this can be achieved by collecting a lot of data => But will lead to high variance
+Each worker have (As in VPG):
+- A local policy network
+- A local value network
 
-The other solution is to use: The action-advantage Function intstead of the return
-
-A(St, At) = Gt - V(St)
-
-the action-advantage center scores around 0 so:
-- better than average actions will have a positive value
-- worst than average actions will have a negative value
-
-We can create 2 neural-networks, one to learn the policy and another to learn the state-value
-function V.
-
-We cannot call this actor-critic because only methods that learn V-function using bootstrapping
-are, because they add bias so they can be qulified as a "critic".
+There is a Shared Policy Network and a Shared Value Network
 
 """
 
-class VPG():
+class A3C():
 
     def __init__(self, ENV_CONF, TRAIN_CONF):
 
@@ -50,18 +37,35 @@ class VPG():
         lr_v = TRAIN_CONF.lrs[1]
         self.seed = TRAIN_CONF["seed"]
 
-        # Define policy network and value network
+        # Define policy network and shared policy network
         hidden_dims = (128, 64)
         self.policy = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
-        self.p_optimizer = optim.Adam(self.policy.parameters(), lr=lr_p)
-        self.policy_model_max_grad_norm = 1  # for gradient clipping
+        self.p_optimizer = SharedAdam(self.policy.parameters(), lr=lr_p)
+        self.policy_model_max_grad_norm = 1
 
+        self.shared_policy = FCDAP(
+            self.device, nS, nA, hidden_dims=hidden_dims).to(self.device).share_memory()
+        self.shared_p_optimizer = SharedAdam(self.shared_policy.parameters(), lr=lr_p)
+        # -------------------------------------------------
+
+        # Define value network and shared value network
         hidden_dims=(256, 128)
         self.value_model = FCV(self.device, nS, hidden_dims=hidden_dims).to(self.device)
-        self.v_optimizer = optim.RMSprop(self.value_model.parameters(), lr=lr_v)
-        self.value_model_max_grad_norm = float('inf')  # for gradient clipping
+        self.v_optimizer = SharedRMSprop(self.value_model.parameters(), lr=lr_v)
+        self.value_model_max_grad_norm = float('inf')
+
+        self.shared_value_model = FCV(
+            self.device, nS, hidden_dims=hidden_dims).to(self.device).share_memory()
+        self.shared_v_optimizer = SharedRMSprop(self.shared_value_model.parameters(), lr=lr_v)
+        # -------------------------------------------------
+
+        self.get_out_lock = mp.Lock()
+        self.get_out_signal = torch.zeros(1, dtype=torch.int).share_memory_()
+        
 
         self.entropy_loss_weight = 0.001
+        self.max_n_steps = TRAIN_CONF.max_n_steps
+        self.n_workers = TRAIN_CONF.n_workers
 
         self.logpas = []
         self.rewards = []
@@ -140,7 +144,6 @@ class VPG():
     
         return np.mean(eval_scores), np.std(eval_scores)
 
-    
 
     def reset_metrics(self):
         self.logpas = []
@@ -163,15 +166,18 @@ if __name__ == "__main__":
     ENV_CONF = { "nS": nS, "nA": nA }
 
     TRAIN_CONF = {
-        "seed": 0, "gamma": .99, "lrs": [0.0005, 0.0007], "n_episodes": 5000,
-        "goal_mean_100_reward": 700,
+        "seed": 42, "gamma": .99, "lrs": [0.0005, 0.0007], "n_episodes": 5000,
+        "goal_mean_100_reward": 700, "max_n_steps": 50, "n_workers": 8,
         "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     }
+    model_path = Path("deep_rl/policy_based_policy_gradient/A3C_cartpolev1.pt")
 
-    # Vanilla Policy Gradient
-    agent = VPG(ENV_CONF, TRAIN_CONF)
-    model_path = Path("deep_rl/policy_based_policy_gradient/vpg_cartpolev1.pt")
+    torch.manual_seed(TRAIN_CONF.seed)
+    np.random.seed(TRAIN_CONF.seed)
+    random.seed(TRAIN_CONF.seed)
 
+    agent = A3C(ENV_CONF, TRAIN_CONF)
+    
     if EVALUATE_ONLY:
         agent.policy.load_state_dict(torch.load(model_path))
         mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
@@ -179,7 +185,7 @@ if __name__ == "__main__":
         evaluation_scores = deque(maxlen=100)
 
         for i_episode in range(1, TRAIN_CONF["n_episodes"] + 1):
-            state, is_terminal = env.reset(seed=TRAIN_CONF["seed"])[0], False
+            state, is_terminal = env.reset(seed=TRAIN_CONF.seed)[0], False
 
             agent.reset_metrics()
             for t_step in count():
