@@ -76,7 +76,6 @@ class VPG():
 
     
     def interact_with_environment(self, state, env):
-        self.policy.train()
         action, logpa, entropy = self.policy.full_pass(state)
         next_state, reward, is_terminal, _, _ = env.step(action)
 
@@ -124,26 +123,26 @@ class VPG():
         value_loss = advantage.pow(2).mul(0.5).mean()
         self.v_optimizer.zero_grad()
         value_loss.backward()
-        torch.nn.utils.clip_grad_norm_(
-            self.value_model.parameters(), self.v_max_grad)
+        torch.nn.utils.clip_grad_norm_(self.value_model.parameters(), self.v_max_grad)
         self.v_optimizer.step()
 
 
-    def evaluate(self, env, n_episodes, seed):
+    def evaluate_one_episode(self, env, seed):
         self.policy.eval()
         eval_scores = []
-        for _ in range(n_episodes):
-            s, d = env.reset(seed=seed)[0], False
-            eval_scores.append(0)
 
-            for _ in count():
-                with torch.no_grad():
-                    a = self.policy.select_greedy_action(s)
+        s, d = env.reset(seed=seed)[0], False
+        eval_scores.append(0)
 
-                s, r, d, _, _ = env.step(a)
-                eval_scores[-1] += r
-                if d: break
+        for _ in count():
+            with torch.no_grad():
+                a = self.policy.select_greedy_action(s)
+
+            s, r, d, _, _ = env.step(a)
+            eval_scores[-1] += r
+            if d: break
     
+        self.policy.train()
         return np.mean(eval_scores), np.std(eval_scores)
 
 
@@ -180,7 +179,7 @@ if __name__ == "__main__":
 
     if is_evaluation:
         agent.policy.load_state_dict(torch.load(model_path))
-        mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
+        mean_eval_score, _ = agent.evaluate_one_episode(env, seed=seed)
     else:
         evaluation_scores = deque(maxlen=100)
         n_episodes = conf_vpg.getint("n_episodes")
@@ -200,7 +199,7 @@ if __name__ == "__main__":
             agent.rewards.append(next_value)
             
             agent.learn()
-            mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
+            mean_eval_score, _ = agent.evaluate_one_episode(env, seed=seed)
             evaluation_scores.append(mean_eval_score)
 
             if len(evaluation_scores) >= 100:
@@ -215,6 +214,7 @@ if __name__ == "__main__":
     env.close()
 
     if not is_evaluation:
-        hp.basis_plotting_style("Moving Avg. reward per episode (Evaluation)", "Episodes", "Avg. rewards")
+        hp.basis_plotting_style(
+            "Moving Avg. reward per episode (Evaluation)", "Episodes", "Avg. rewards")
         plt.plot(moving_avg_100)
         plt.show()
