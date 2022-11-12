@@ -192,7 +192,6 @@ if __name__ == "__main__":
             for t_step in count():
                 new_state, is_terminal = agent.interact_with_environment(state, env)
                 state = new_state
-
                 if is_terminal: break
             
             next_value = 0 if is_terminal else agent.value_model(state).detach().item()
