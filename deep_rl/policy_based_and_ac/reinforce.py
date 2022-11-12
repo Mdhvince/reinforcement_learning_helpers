@@ -1,3 +1,4 @@
+import configparser
 from pathlib import Path
 from itertools import count
 from collections import deque
@@ -40,16 +41,16 @@ of that action being selected at that step.
 
 class Reinforce():
 
-    def __init__(self, ENV_CONF, TRAIN_CONF):
+    def __init__(self, config, device):
 
-        nS = ENV_CONF["nS"]
-        nA = ENV_CONF["nA"]
-        self.device = TRAIN_CONF["device"]
-        self.gamma = TRAIN_CONF["gamma"]
-        lr = TRAIN_CONF["lr"]
-        self.seed = TRAIN_CONF["seed"]
+        nS = config.getint("nS")
+        nA = config.getint("nA")
+        self.device = device
+        self.gamma = config.getfloat("gamma")
+        lr = config.getfloat("lr")
+        self.seed = config.getint("seed")
 
-        hidden_dims = (128, 64)
+        hidden_dims = eval(config.get("hidden_dims"))
         self.policy = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
@@ -105,55 +106,54 @@ class Reinforce():
     
         return np.mean(eval_scores), np.std(eval_scores)
 
-    
 
     def reset_metrics(self):
         self.logpas = []
         self.rewards = []
-    
 
 
 
 if __name__ == "__main__":
+    folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
+    config_file = folder / "config.ini"
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    
+    conf = config["DEFAULT"]
+    conf_reinforce = config["REINFORCE"]
 
-    EVALUATE_ONLY = True
+    model_path = Path(folder / conf_reinforce.get("model_name"))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    if EVALUATE_ONLY:
-        env = gym.make("CartPole-v1", render_mode="human")
+    if conf.getboolean("evaluate_only"):
+        env = gym.make(conf_reinforce.get("env_name"), render_mode="human")
     else:
-        env = gym.make("CartPole-v1")
+        env = gym.make(conf_reinforce.get("env_name"))
         
     nS, nA = env.observation_space.shape[0], env.action_space.n
+    conf_reinforce["nS"] = f"{nS}"
+    conf_reinforce["nA"] = f"{nA}"
 
-    ENV_CONF = { "nS": nS, "nA": nA }
-    TRAIN_CONF = {
-        "seed": 0, "gamma": .99, "lr": 0.0005, "n_episodes": 5000, "goal_mean_100_reward": 475,
-        "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    }
-
-    goal_mean_100_reward = 475
 
     # Monte-Carlo reinforce
-    agent = Reinforce(ENV_CONF, TRAIN_CONF)
-    model_path = Path("deep_rl/policy_based_policy_gradient/reinforce_cartpolev1.pt")
-
-    if EVALUATE_ONLY:
-        agent.policy.load_state_dict(
-            torch.load(model_path)
-        )
+    agent = Reinforce(conf_reinforce, device)
+    
+    if conf.getboolean("evaluate_only"):
+        agent.policy.load_state_dict(torch.load(model_path))
         mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
     else:
 
         evaluation_scores = deque(maxlen=100)
+        n_episodes = conf_reinforce.getint("n_episodes")
+        goal_mean_100_reward = conf_reinforce.getint("goal_mean_100_reward")
 
-        for i_episode in range(1, TRAIN_CONF.n_episodes + 1):
-            state, is_terminal = env.reset(seed=TRAIN_CONF.seed)[0], False
+        for i_episode in range(1, n_episodes + 1):
+            state, is_terminal = env.reset(seed=agent.seed)[0], False
 
             agent.reset_metrics()
             for t_step in count():
                 new_state, is_terminal = agent.interact_with_environment(state, env)
                 state = new_state
-
                 if is_terminal: break
             
             agent.learn()
@@ -164,7 +164,7 @@ if __name__ == "__main__":
                 mean_100_eval_score = np.mean(evaluation_scores)
                 print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
 
-                if(mean_100_eval_score >= TRAIN_CONF.goal_mean_100_reward):
+                if(mean_100_eval_score >= goal_mean_100_reward):
                     torch.save(agent.policy.state_dict(), model_path)
                     break
 
