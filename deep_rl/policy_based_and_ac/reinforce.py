@@ -48,7 +48,6 @@ class Reinforce():
         self.device = device
         self.gamma = config.getfloat("gamma")
         lr = config.getfloat("lr")
-        self.seed = config.getint("seed")
 
         hidden_dims = eval(config.get("hidden_dims"))
         self.policy = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
@@ -89,11 +88,11 @@ class Reinforce():
         self.optimizer.step()
     
 
-    def evaluate(self, env, n_episodes=1):
+    def evaluate(self, env, n_episodes, seed):
         self.policy.eval()
         eval_scores = []
         for _ in range(n_episodes):
-            s, d = env.reset(seed=self.seed)[0], False
+            s, d = env.reset(seed=seed)[0], False
             eval_scores.append(0)
 
             for _ in count():
@@ -123,24 +122,23 @@ if __name__ == "__main__":
     conf_reinforce = config["REINFORCE"]
 
     model_path = Path(folder / conf_reinforce.get("model_name"))
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    is_evaluation = conf.getboolean("evaluate_only")
+    env_name = conf_reinforce.get("env_name")
 
-    if conf.getboolean("evaluate_only"):
-        env = gym.make(conf_reinforce.get("env_name"), render_mode="human")
-    else:
-        env = gym.make(conf_reinforce.get("env_name"))
-        
+    env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
     nS, nA = env.observation_space.shape[0], env.action_space.n
     conf_reinforce["nS"] = f"{nS}"
     conf_reinforce["nA"] = f"{nA}"
 
 
     # Monte-Carlo reinforce
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     agent = Reinforce(conf_reinforce, device)
+    seed = conf.getint("seed")
     
-    if conf.getboolean("evaluate_only"):
+    if is_evaluation:
         agent.policy.load_state_dict(torch.load(model_path))
-        mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
+        mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
     else:
 
         evaluation_scores = deque(maxlen=100)
@@ -148,7 +146,7 @@ if __name__ == "__main__":
         goal_mean_100_reward = conf_reinforce.getint("goal_mean_100_reward")
 
         for i_episode in range(1, n_episodes + 1):
-            state, is_terminal = env.reset(seed=agent.seed)[0], False
+            state, is_terminal = env.reset(seed=seed)[0], False
 
             agent.reset_metrics()
             for t_step in count():
@@ -157,7 +155,7 @@ if __name__ == "__main__":
                 if is_terminal: break
             
             agent.learn()
-            mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
+            mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
             evaluation_scores.append(mean_eval_score)
 
             if len(evaluation_scores) >= 100:

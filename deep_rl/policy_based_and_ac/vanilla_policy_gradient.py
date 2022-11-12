@@ -1,3 +1,5 @@
+import sys
+import configparser
 from pathlib import Path
 from itertools import count
 from collections import deque
@@ -7,8 +9,13 @@ import gym
 import numpy as np
 import torch
 import torch.optim as optim
+import matplotlib.pyplot as plt
+
+sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from fc import FCDAP, FCV
+import deep_rl.helper_plots as hp
+
 
 """Vanilla Policy Gradient (VPG) or REINFORCE with baseline
 
@@ -40,28 +47,27 @@ are, because they add bias so they can be qulified as a "critic".
 
 class VPG():
 
-    def __init__(self, ENV_CONF, TRAIN_CONF):
+    def __init__(self, config, device):
 
-        nS = ENV_CONF["nS"]
-        nA = ENV_CONF["nA"]
-        self.device = TRAIN_CONF["device"]
-        self.gamma = TRAIN_CONF["gamma"]
-        lr_p = TRAIN_CONF.lrs[0]
-        lr_v = TRAIN_CONF.lrs[1]
-        self.seed = TRAIN_CONF["seed"]
+        self.device = device
+        nS = config.getint("nS")
+        nA = config.getint("nA")
+        self.gamma = config.getfloat("gamma")
+        lrs = eval(config.get("lrs"))
+        lr_p = lrs[0]
+        lr_v = lrs[1]
+        hidden_dims_p = eval(config.get("hidden_dims_policy_net"))
+        hidden_dims_v = eval(config.get("hidden_dims_value_net"))
+        self.entropy_loss_weight = config.getfloat("entropy_loss_weight")
 
-        # Define policy network and value network
-        hidden_dims = (128, 64)
-        self.policy = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims).to(self.device)
+        # Define policy network, value network and max gradient for gradient clipping
+        self.policy = FCDAP(self.device, nS, nA, hidden_dims=hidden_dims_p).to(self.device)
         self.p_optimizer = optim.Adam(self.policy.parameters(), lr=lr_p)
-        self.policy_model_max_grad_norm = 1  # for gradient clipping
+        self.p_max_grad = config.getint("max_gradient_policy_net")
 
-        hidden_dims=(256, 128)
-        self.value_model = FCV(self.device, nS, hidden_dims=hidden_dims).to(self.device)
+        self.value_model = FCV(self.device, nS, hidden_dims=hidden_dims_v).to(self.device)
         self.v_optimizer = optim.RMSprop(self.value_model.parameters(), lr=lr_v)
-        self.value_model_max_grad_norm = float('inf')  # for gradient clipping
-
-        self.entropy_loss_weight = 0.001
+        self.v_max_grad = float(eval(config.get("max_gradient_value_net")))
 
         self.logpas = []
         self.rewards = []
@@ -108,7 +114,7 @@ class VPG():
         self.p_optimizer.zero_grad()
         loss.backward()
         # clip the gradient
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.policy_model_max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.p_max_grad)
         self.p_optimizer.step()
 
         # --------------------------------------------------------------------
@@ -119,15 +125,15 @@ class VPG():
         self.v_optimizer.zero_grad()
         value_loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            self.value_model.parameters(), self.value_model_max_grad_norm)
+            self.value_model.parameters(), self.v_max_grad)
         self.v_optimizer.step()
 
 
-    def evaluate(self, env, n_episodes=1):
+    def evaluate(self, env, n_episodes, seed):
         self.policy.eval()
         eval_scores = []
         for _ in range(n_episodes):
-            s, d = env.reset(seed=self.seed)[0], False
+            s, d = env.reset(seed=seed)[0], False
             eval_scores.append(0)
 
             for _ in count():
@@ -140,7 +146,6 @@ class VPG():
     
         return np.mean(eval_scores), np.std(eval_scores)
 
-    
 
     def reset_metrics(self):
         self.logpas = []
@@ -150,36 +155,39 @@ class VPG():
 
 
 if __name__ == "__main__":
+    folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
+    config_file = folder / "config.ini"
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    
+    conf = config["DEFAULT"]
+    conf_vpg = config["VPG"]
 
-    EVALUATE_ONLY = True
+    model_path = Path(folder / conf_vpg.get("model_name"))
+    is_evaluation = conf.getboolean("evaluate_only")
+    env_name = conf_vpg.get("env_name")
 
-    if EVALUATE_ONLY:
-        env = gym.make("CartPole-v1", render_mode="human")
-    else:
-        env = gym.make("CartPole-v1")
-        
+    env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
     nS, nA = env.observation_space.shape[0], env.action_space.n
-
-    ENV_CONF = { "nS": nS, "nA": nA }
-
-    TRAIN_CONF = {
-        "seed": 0, "gamma": .99, "lrs": [0.0005, 0.0007], "n_episodes": 5000,
-        "goal_mean_100_reward": 700,
-        "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    }
+    conf_vpg["nS"] = f"{nS}"
+    conf_vpg["nA"] = f"{nA}"
 
     # Vanilla Policy Gradient
-    agent = VPG(ENV_CONF, TRAIN_CONF)
-    model_path = Path("deep_rl/policy_based_policy_gradient/vpg_cartpolev1.pt")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    agent = VPG(conf_vpg, device)
+    seed = conf.getint("seed")
+    moving_avg_100 = []
 
-    if EVALUATE_ONLY:
+    if is_evaluation:
         agent.policy.load_state_dict(torch.load(model_path))
-        mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
+        mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
     else:
         evaluation_scores = deque(maxlen=100)
+        n_episodes = conf_vpg.getint("n_episodes")
+        goal_mean_100_reward = conf_vpg.getint("goal_mean_100_reward")
 
-        for i_episode in range(1, TRAIN_CONF["n_episodes"] + 1):
-            state, is_terminal = env.reset(seed=TRAIN_CONF["seed"])[0], False
+        for i_episode in range(1, n_episodes + 1):
+            state, is_terminal = env.reset(seed=seed)[0], False
 
             agent.reset_metrics()
             for t_step in count():
@@ -192,15 +200,21 @@ if __name__ == "__main__":
             agent.rewards.append(next_value)
             
             agent.learn()
-            mean_eval_score, _ = agent.evaluate(env, n_episodes=1)
+            mean_eval_score, _ = agent.evaluate(env, n_episodes=1, seed=seed)
             evaluation_scores.append(mean_eval_score)
 
             if len(evaluation_scores) >= 100:
                 mean_100_eval_score = np.mean(evaluation_scores)
                 print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
+                moving_avg_100.append(mean_100_eval_score)
 
-                if(mean_100_eval_score >= TRAIN_CONF.goal_mean_100_reward):
-                    torch.save(agent.policy.state_dict(), model_path)
-                    break
+            if(mean_100_eval_score >= goal_mean_100_reward):
+                torch.save(agent.policy.state_dict(), model_path)
+                break
 
     env.close()
+
+    if not is_evaluation:
+        hp.basis_plotting_style("Moving Avg. reward per episode (Evaluation)", "Episodes", "Avg. rewards")
+        plt.plot(moving_avg_100)
+        plt.show()
