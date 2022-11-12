@@ -191,9 +191,7 @@ class FCAC(nn.Module):  # Fully connected actor-critic
         
         # the entropy term encourage having evenly distributed actions
         entropy = dist.entropy().unsqueeze(-1)
-
         action = action.item() if len(action) == 1 else action.data.numpy()
-
         return action, logpa, entropy, value
 
 
