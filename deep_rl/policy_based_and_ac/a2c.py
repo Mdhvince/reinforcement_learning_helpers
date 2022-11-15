@@ -145,22 +145,95 @@ class A2C():
         self.values.append(values)
         
         return new_states, is_terminals
+    
+
+    def learn(self):
+        logpas = torch.stack(self.logpas).squeeze()
+        entropies = torch.stack(self.entropies).squeeze()
+        values = torch.stack(self.values).squeeze()
+
+        
+
+        T = len(self.rewards)  # length of rewards (+ last boostraping value "next_values")
+
+        # the sequence starts at base**start and ends with base**stop.
+        discounts = np.logspace(start=0, stop=T, num=T, base=self.gamma, endpoint=False)
+        rewards = np.array(self.rewards).squeeze()
+
+        returns = []
+        for w in range(self.n_workers):
+            for t_step in range(T):  # each t_step contains n number of rewards (with n = n_workers)
+                discounted_reward = discounts[:T-t_step] * rewards[t_step:, w]
+                returns.append(np.sum(discounted_reward))
+        
+        returns = np.array(returns).reshape(self.n_workers, T)  # All returns per worker
+
+        # here we use GAE to estimate robust targets for the action-advantage funtion
+        # - use of a exponentially weighted combination of n-step action-advantage function targets
+        
+        np_values = values.data.numpy()
+        # T-1 because the recall the last value in T=len(rewards) is a bootsrapping value
+        tau_discounts = np.logspace(
+            start=0, stop=T-1, num=T-1, base=self.gamma*self.tau, endpoint=False)
+        
+        advs = rewards[:-1] + self.gamma * np_values[1:] - np_values[:-1]
+
+        gaes = []
+        for w in range(self.n_workers):
+            for t_step in range(T-1):
+                discounted_advantage = tau_discounts[:T-1-t_step] * advs[t_step:, w]
+                gaes.append(np.sum(discounted_advantage))
+
+        gaes = np.array(gaes).reshape(self.n_workers, T-1)
+        discounted_gaes = discounts[:-1] * gaes
+        
+        # Getting off the train ---- continue after this line 
+
+        values = values[:-1,...].view(-1).unsqueeze(1)
+        logpas = logpas.view(-1).unsqueeze(1)
+        entropies = entropies.view(-1).unsqueeze(1)
+        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1)
+        discounted_gaes = torch.FloatTensor(discounted_gaes.T).reshape(-1, 1)
+        
+        # T -= 1
+        # T *= self.n_workers
+
+        # assert returns.size() == (T, 1)
+        # assert values.size() == (T, 1)
+        # assert logpas.size() == (T, 1)
+        # assert entropies.size() == (T, 1)
+
+        value_error = returns.detach() - values
+        value_loss = value_error.pow(2).mul(0.5).mean()
+        policy_loss = -(discounted_gaes.detach() * logpas).mean()
+        entropy_loss = -entropies.mean()
+        loss = self.policy_loss_weight * policy_loss + \
+                self.value_loss_weight * value_loss + \
+                self.entropy_loss_weight * entropy_loss
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.ac_model.parameters(), self.max_grad)
+        self.optimizer.step()
 
 
-    def train(self):
-        # torch.manual_seed(self.seed)
-        # np.random.seed(self.seed)
-        # random.seed(self.seed)
+    def evaluate_one_episode(self, env, seed):
+        self.ac_model.eval()
+        eval_scores = []
 
-        # mp_env = MultiprocessEnv(self.config, self.seed)
+        s, d = env.reset(seed=seed)[0], False
+        eval_scores.append(0)
 
-        # states = mp_env.reset()
-        # episode, n_steps_start = 0, 0
-        # self.logpas, self.entropies, self.rewards, self.values = [], [], [], []
+        for _ in count():
+            with torch.no_grad():
+                a = self.ac_model.select_action(s)
 
-        # for t_step in count(start=1):
-        #     states, is_terminals = 
-        pass
+            s, r, d, _, _ = env.step(a)
+            eval_scores[-1] += r
+            if d: break
+    
+        self.ac_model.train()
+        return np.mean(eval_scores), np.std(eval_scores)    
     
 
     def reset_metrics(self):
@@ -206,20 +279,43 @@ if __name__ == "__main__":
     states = mp_env.reset()
     
     episode, n_steps_start = 0, 0
+    max_n_steps = conf_a2c.getint("max_n_steps")
+    evaluation_scores = deque(maxlen=100)
 
     agent.reset_metrics()
     for t_step in count(start=1):
         states, is_terminals = agent.interact_with_environment(states, mp_env)
 
-        print(is_terminals)
-        print(is_terminals.sum())
+        all_workers_are_done = is_terminals.sum() == 1.0
+        has_reached_max_n_steps = t_step - n_steps_start == max_n_steps
 
-        if t_step == 100: break
-    mp_env.close()
+        if all_workers_are_done or has_reached_max_n_steps:
+            # send past limit cmd here ?
+
+            # next_values is a 2d array, each row is a worker. is_terminal also. So next_values
+            # will be 0 only for workers that reach terminal state "* (1 - is_terminals)"
+            next_values = (
+                agent.ac_model.get_state_value(states).detach().numpy() * (1 - is_terminals)
+            )
+            agent.rewards.append(next_values)
+            agent.values.append(torch.Tensor(next_values))
+            agent.learn()
+            agent.reset_metrics()
+            n_steps_start = t_step
         
-        # # some if conditio here then
-        # next_value = agent.ac_model.get_state_value(states).detach().numpy() * (1 - is_terminals)
+        if all_workers_are_done:
+            print("\nEvaluating...")
+            mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
+            evaluation_scores.append(mean_eval_score)
+            mean_100_eval_score = np.mean(evaluation_scores)
+            print(f"Episode {episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
 
+            for i in range(agent.n_workers):
+                if is_terminals[i]:
+                    states[i] = mp_env.reset(rank=i)
+                    episode += 1
+
+    mp_env.close()
 
 
     
