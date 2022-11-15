@@ -202,6 +202,11 @@ class FCAC(nn.Module):  # Fully connected actor-critic
         action = dist.sample()
         action = action.item() if len(action) == 1 else action.data.numpy()
         return action
+    
+
+    def get_state_value(self, state):
+        _, value = self.forward(state)
+        return value
 
 
 if __name__ == "__main__":
