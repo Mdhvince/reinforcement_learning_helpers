@@ -297,7 +297,7 @@ if __name__ == "__main__":
             agent.reset_metrics()
             n_steps_start = t_step
         
-        if dones.sum():
+        if dones.sum() != 0.:  # if at least one worker is done
             mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
             evaluation_scores.append(mean_eval_score)
             mean_100_eval_score = np.mean(evaluation_scores)
@@ -305,6 +305,7 @@ if __name__ == "__main__":
 
             if mean_100_eval_score >= goal_mean_100_reward: break
 
+            # reset state of done workers so they can restart collecting while others continue.
             for i in range(agent.n_workers):
                 if dones[i]:
                     states[i] = mp_env.reset(worker_id=i)
