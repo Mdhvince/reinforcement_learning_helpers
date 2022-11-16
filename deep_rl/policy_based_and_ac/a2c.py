@@ -49,6 +49,7 @@ class MultiprocessEnv(object):
                 child_process.close()
                 break
     
+    
     def reset(self, worker_id=None):
         """
         - If worker_id is not None: Send the reset message from the parent to the child.
@@ -56,6 +57,8 @@ class MultiprocessEnv(object):
         parent here.
         - Otherwise, send the reset to all childs and get + stack their results (states)
         """
+        # since all workers will not finish at the same time, we need a way to reset one particular
+        # worker when he is done, so he can start re-interacting with the environment
         if worker_id is not None:
             main_process, _ = self.pipes[worker_id]
             self.send_msg(('reset', {}), worker_id)
