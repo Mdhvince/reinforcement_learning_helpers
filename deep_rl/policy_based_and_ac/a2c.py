@@ -290,8 +290,6 @@ if __name__ == "__main__":
         states, dones = agent.interact_with_environment(states, mp_env)
 
         if dones.sum() or t_step - n_steps_start == max_n_steps:
-            # next_values is a 2d array, each row is a worker. is_terminal also. So next_values
-            # will be 0 only for workers that reach terminal state "* (1 - dones)"
             next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
             agent.rewards.append(next_values)
             agent.values.append(torch.Tensor(next_values))
