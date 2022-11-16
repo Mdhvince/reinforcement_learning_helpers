@@ -187,21 +187,21 @@ class A2C():
         gaes = np.array(gaes).reshape(self.n_workers, T-1)
         discounted_gaes = discounts[:-1] * gaes
         
-        # Getting off the train ---- continue after this line 
-
+        # For some tensors we use reshape instead of view because view only works on
+        # contiguous tensors. When transposing the tensor, it becomes non-contiguous in memory.
+        # we could have used also: x.contiguous().view(-1)
         values = values[:-1,...].view(-1).unsqueeze(1)
         logpas = logpas.view(-1).unsqueeze(1)
         entropies = entropies.view(-1).unsqueeze(1)
-        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1)
+        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1).unsqueeze(1)
         discounted_gaes = torch.FloatTensor(discounted_gaes.T).reshape(-1, 1)
         
-        # T -= 1
-        # T *= self.n_workers
-
-        # assert returns.size() == (T, 1)
-        # assert values.size() == (T, 1)
-        # assert logpas.size() == (T, 1)
-        # assert entropies.size() == (T, 1)
+        T -= 1
+        T *= self.n_workers
+        assert returns.size() == (T, 1)
+        assert values.size() == (T, 1)
+        assert logpas.size() == (T, 1)
+        assert entropies.size() == (T, 1)
 
         value_error = returns.detach() - values
         value_loss = value_error.pow(2).mul(0.5).mean()
@@ -284,11 +284,11 @@ if __name__ == "__main__":
 
     agent.reset_metrics()
     for t_step in count(start=1):
+
+        # ---- From here, everything is stacked (2d arrays of n rows = n_workers)
         states, dones = agent.interact_with_environment(states, mp_env)
 
         if dones.sum() or t_step - n_steps_start == max_n_steps:
-            # send past limit cmd here ?
-
             # next_values is a 2d array, each row is a worker. is_terminal also. So next_values
             # will be 0 only for workers that reach terminal state "* (1 - dones)"
             next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
