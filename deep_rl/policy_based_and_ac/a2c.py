@@ -137,14 +137,14 @@ class A2C():
         actions, logpas, entropies, values = self.ac_model.full_pass(states)
 
         # send the 'step' cmd from main process to child process
-        new_states, rewards, is_terminals, _ = mp_env.step(actions)
+        new_states, rewards, dones, _ = mp_env.step(actions)
 
         self.logpas.append(logpas)
         self.entropies.append(entropies)
         self.rewards.append(rewards)
         self.values.append(values)
         
-        return new_states, is_terminals
+        return new_states, dones
     
 
     def learn(self):
@@ -284,35 +284,29 @@ if __name__ == "__main__":
 
     agent.reset_metrics()
     for t_step in count(start=1):
-        states, is_terminals = agent.interact_with_environment(states, mp_env)
+        states, dones = agent.interact_with_environment(states, mp_env)
 
-        all_workers_are_done = is_terminals.sum() == 1.0
-        has_reached_max_n_steps = t_step - n_steps_start == max_n_steps
-
-        if all_workers_are_done or has_reached_max_n_steps:
+        if dones.sum() or t_step - n_steps_start == max_n_steps:
             # send past limit cmd here ?
 
             # next_values is a 2d array, each row is a worker. is_terminal also. So next_values
-            # will be 0 only for workers that reach terminal state "* (1 - is_terminals)"
-            next_values = (
-                agent.ac_model.get_state_value(states).detach().numpy() * (1 - is_terminals)
-            )
+            # will be 0 only for workers that reach terminal state "* (1 - dones)"
+            next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
             agent.rewards.append(next_values)
             agent.values.append(torch.Tensor(next_values))
             agent.learn()
             agent.reset_metrics()
             n_steps_start = t_step
         
-        if all_workers_are_done:
-            print("\nEvaluating...")
+        if dones.sum():
             mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
             evaluation_scores.append(mean_eval_score)
             mean_100_eval_score = np.mean(evaluation_scores)
             print(f"Episode {episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
 
             for i in range(agent.n_workers):
-                if is_terminals[i]:
-                    states[i] = mp_env.reset(rank=i)
+                if dones[i]:
+                    states[i] = mp_env.reset(worker_id=i)
                     episode += 1
 
     mp_env.close()
