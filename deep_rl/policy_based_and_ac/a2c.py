@@ -193,7 +193,7 @@ class A2C():
         values = values[:-1,...].view(-1).unsqueeze(1)
         logpas = logpas.view(-1).unsqueeze(1)
         entropies = entropies.view(-1).unsqueeze(1)
-        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1).unsqueeze(1)
+        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1)
         discounted_gaes = torch.FloatTensor(discounted_gaes.T).reshape(-1, 1)
         
         T -= 1
@@ -281,6 +281,7 @@ if __name__ == "__main__":
     episode, n_steps_start = 0, 0
     max_n_steps = conf_a2c.getint("max_n_steps")
     evaluation_scores = deque(maxlen=100)
+    goal_mean_100_reward = conf_a2c.getint("goal_mean_100_reward")
 
     agent.reset_metrics()
     for t_step in count(start=1):
@@ -303,6 +304,8 @@ if __name__ == "__main__":
             evaluation_scores.append(mean_eval_score)
             mean_100_eval_score = np.mean(evaluation_scores)
             print(f"Episode {episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
+
+            if mean_100_eval_score >= goal_mean_100_reward: break
 
             for i in range(agent.n_workers):
                 if dones[i]:
