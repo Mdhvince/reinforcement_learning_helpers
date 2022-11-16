@@ -190,7 +190,9 @@ class A2C():
         # For some tensors we use reshape instead of view because view only works on
         # contiguous tensors. When transposing the tensor, it becomes non-contiguous in memory.
         # we could have used also: x.contiguous().view(-1)
-        values = values[:-1,...].view(-1).unsqueeze(1)
+
+        # :-1, ... remove last row on the first dimension but keep all other dimensions
+        values = values[:-1, ...].view(-1).unsqueeze(1)
         logpas = logpas.view(-1).unsqueeze(1)
         entropies = entropies.view(-1).unsqueeze(1)
         returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1)
@@ -209,7 +211,7 @@ class A2C():
         entropy_loss = -entropies.mean()
         loss = self.policy_loss_weight * policy_loss + \
                 self.value_loss_weight * value_loss + \
-                self.entropy_loss_weight * entropy_loss
+                self.entropy_loss_weight * entropy_loss        
 
         self.optimizer.zero_grad()
         loss.backward()
