@@ -256,9 +256,8 @@ if __name__ == "__main__":
     conf_a2c = config["A2C"]
 
     seed = conf.getint("seed")
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    model_path = Path(folder / conf_a2c.get("model_name"))
+    is_evaluation = conf.getboolean("evaluate_only")
 
     # just to get nA, nS and for evaluation
     env_name = conf_a2c.get("env_name")
@@ -275,43 +274,53 @@ if __name__ == "__main__":
     np.random.seed(seed)
     random.seed(seed)
 
-    mp_env = MultiprocessEnv(conf_a2c, seed)
-    states = mp_env.reset()
-    
-    episode, n_steps_start = 0, 0
-    max_n_steps = conf_a2c.getint("max_n_steps")
-    evaluation_scores = deque(maxlen=100)
-    goal_mean_100_reward = conf_a2c.getint("goal_mean_100_reward")
+    if is_evaluation:
+        env_inference = gym.make(env_name, render_mode="human")
+        agent.ac_model.load_state_dict(torch.load(model_path))
+        mean_eval_score, _ = agent.evaluate_one_episode(env_inference, seed=seed)
+        print(mean_eval_score)
+    else:
 
-    agent.reset_metrics()
-    for t_step in count(start=1):
-
-        # ---- From here, everything is stacked (2d arrays of n rows = n_workers)
-        states, dones = agent.interact_with_environment(states, mp_env)
-
-        if dones.sum() or t_step - n_steps_start == max_n_steps:
-            next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
-            agent.rewards.append(next_values)
-            agent.values.append(torch.Tensor(next_values))
-            agent.learn()
-            agent.reset_metrics()
-            n_steps_start = t_step
+        # Train
+        mp_env = MultiprocessEnv(conf_a2c, seed)
+        states = mp_env.reset()
         
-        if dones.sum() != 0.:  # if at least one worker is done
-            mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
-            evaluation_scores.append(mean_eval_score)
-            mean_100_eval_score = np.mean(evaluation_scores)
-            print(f"Episode {episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
+        episode, n_steps_start = 0, 0
+        max_n_steps = conf_a2c.getint("max_n_steps")
+        evaluation_scores = deque(maxlen=100)
+        goal_mean_100_reward = conf_a2c.getint("goal_mean_100_reward")
 
-            if mean_100_eval_score >= goal_mean_100_reward: break
+        agent.reset_metrics()
+        for t_step in count(start=1):
 
-            # reset state of done workers so they can restart collecting while others continue.
-            for i in range(agent.n_workers):
-                if dones[i]:
-                    states[i] = mp_env.reset(worker_id=i)
-                    episode += 1
+            # ---- From here, everything is stacked (2d arrays of n rows = n_workers)
+            states, dones = agent.interact_with_environment(states, mp_env)
 
-    mp_env.close()
+            if dones.sum() or t_step - n_steps_start == max_n_steps:
+                next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
+                agent.rewards.append(next_values)
+                agent.values.append(torch.Tensor(next_values))
+                agent.learn()
+                agent.reset_metrics()
+                n_steps_start = t_step
+            
+            if dones.sum() != 0.:  # if at least one worker is done
+                mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
+                evaluation_scores.append(mean_eval_score)
+                mean_100_eval_score = np.mean(evaluation_scores)
+                print(f"Episode {episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
+
+                if mean_100_eval_score >= goal_mean_100_reward:
+                    torch.save(agent.ac_model.state_dict(), model_path)
+                    break
+
+                # reset state of done workers so they can restart collecting while others continue.
+                for i in range(agent.n_workers):
+                    if dones[i]:
+                        states[i] = mp_env.reset(worker_id=i)
+                        episode += 1
+
+        mp_env.close()
 
 
     
