@@ -160,6 +160,8 @@ class FCAC(nn.Module):  # Fully connected actor-critic
         self.value_out_layer = nn.Linear(hidden_dims[-1], 1)
         self.policy_out_layer = nn.Linear(hidden_dims[-1], out_dim)
 
+        self.to(device)
+
 
     def _format(self, x):
         """

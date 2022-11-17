@@ -113,7 +113,6 @@ class MultiprocessEnv(object):
 
 class A2C():
     def __init__(self, config, seed, device):
-        self.device = device
         self.nS = config.getint("nS")
         self.nA = config.getint("nA")
         self.config = config
@@ -122,7 +121,7 @@ class A2C():
         self.hidden_dims = eval(config.get("hidden_dims"))
         self.lr = config.getfloat("lr")
 
-        self.ac_model = FCAC(self.device, self.nS, self.nA, hidden_dims=self.hidden_dims).to(self.device)
+        self.ac_model = FCAC(device, self.nS, self.nA, hidden_dims=self.hidden_dims)
         self.optimizer = optim.RMSprop(self.ac_model.parameters(), lr=self.lr)
         self.max_grad = config.getint("max_gradient")
 
@@ -264,7 +263,7 @@ if __name__ == "__main__":
     model_path = Path(folder / conf_a2c.get("model_name"))
     is_evaluation = conf.getboolean("evaluate_only")
 
-    # just to get nA, nS and for evaluation
+    # to get nA, nS and for evaluation
     env_name = conf_a2c.get("env_name")
     env_eval = gym.make(env_name)
     nS, nA = env_eval.observation_space.shape[0], env_eval.action_space.n
