@@ -170,7 +170,7 @@ class A2C():
         
         returns = np.array(returns).reshape(self.n_workers, T)  # All returns per worker
 
-        # here we use GAE to estimate robust targets for the action-advantage funtion
+        # here we use GAE to estimate robust targets for the action-advantage function
         # - use of a exponentially weighted combination of n-step action-advantage function targets
         
         np_values = values.data.numpy()
@@ -193,7 +193,7 @@ class A2C():
         # contiguous tensors. When transposing the tensor, it becomes non-contiguous in memory.
         # we could have used also: x.contiguous().view(-1)
 
-        # :-1, ... remove last row on the first dimension but keep all other dimensions
+        # [:-1, ...] remove last row on the first dimension but keep all other dimensions
         values = values[:-1, ...].view(-1).unsqueeze(1)
         logpas = logpas.view(-1).unsqueeze(1)
         entropies = entropies.view(-1).unsqueeze(1)
@@ -208,9 +208,11 @@ class A2C():
         assert entropies.size() == (T, 1)
 
         value_error = returns.detach() - values
+
         value_loss = value_error.pow(2).mul(0.5).mean()
         policy_loss = -(discounted_gaes.detach() * logpas).mean()
         entropy_loss = -entropies.mean()
+
         loss = self.policy_loss_weight * policy_loss + \
                 self.value_loss_weight * value_loss + \
                 self.entropy_loss_weight * entropy_loss        
@@ -248,7 +250,6 @@ class A2C():
 
 
 
-
 if __name__ == "__main__":
     
     folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
@@ -270,13 +271,15 @@ if __name__ == "__main__":
     conf_a2c["nS"] = f"{nS}"
     conf_a2c["nA"] = f"{nA}"
     
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    agent = A2C(conf_a2c, seed, device)
     
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    agent = A2C(conf_a2c, seed, device)
+    
+    
 
     if is_evaluation:
         env_inference = gym.make(env_name, render_mode="human")
@@ -284,8 +287,6 @@ if __name__ == "__main__":
         mean_eval_score, _ = agent.evaluate_one_episode(env_inference, seed=seed)
         print(mean_eval_score)
     else:
-
-        # Train
         mp_env = MultiprocessEnv(conf_a2c, seed)
         states = mp_env.reset()
         
@@ -293,22 +294,26 @@ if __name__ == "__main__":
         max_n_steps = conf_a2c.getint("max_n_steps")
         evaluation_scores = deque(maxlen=100)
         goal_mean_100_reward = conf_a2c.getint("goal_mean_100_reward")
+        
+        # n-step Advantage Estimate :  Aᴳᴬᴱ(Sₜ, Aₜ) = ∑ λⁿ Rₜ₊ₙ - V(Sₜ)
 
         agent.reset_metrics()
         for t_step in count(start=1):
-
             # ---- From here, everything is stacked (2d arrays of n rows = n_workers)
             states, dones = agent.interact_with_environment(states, mp_env)
 
             if dones.sum() or t_step - n_steps_start == max_n_steps:
                 next_values = agent.ac_model.get_state_value(states).detach().numpy() * (1 - dones)
-                agent.rewards.append(next_values)
+
+                agent.rewards.append(next_values)  #  ∑ Rₜ₊ₙ + V(Sₜ₊ₙ)
                 agent.values.append(torch.Tensor(next_values))
+
                 agent.learn()
+
                 agent.reset_metrics()
                 n_steps_start = t_step
             
-            if dones.sum() != 0.:  # if at least one worker is done
+            if dones.sum() != 0.:  # at least one worker is done
                 mean_eval_score, _ = agent.evaluate_one_episode(env_eval, seed)
                 evaluation_scores.append(mean_eval_score)
                 mean_100_eval_score = np.mean(evaluation_scores)
