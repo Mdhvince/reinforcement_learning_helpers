@@ -45,6 +45,10 @@ optimizer.step()
 As we can see, the return $G_t$ is used to **weight** the log probability of the action taken at time t. That mean if the return is bad at time t, it is because action taken at time t was bad, so by multiplying the bad return with the probability of that action, we reduce the likelihood.
 of that action being selected at that step.  
 
+[![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
+  https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/reinforce.py
+)
+
 ***
 ## Vanilla Policy Gradient or REINFORCE with baseline
 
@@ -106,6 +110,10 @@ Loss for the Value Network is:
   
 So in VPG we need a value network and a policy network. Because VPG is still using a full trajectory, there is no bias in the algorithm, so we assume the algorithm is "right" so cannot be considered as a "critic" (A thought by Rich Sutton. I also share his idea on that, so for me this is not an actor-critic algoritm). 
 
+[![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
+  https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/vanilla_policy_gradient.py
+)
+
 ***
 ## Advantage Actor-Critic: A2C (Sharing Weight)  
 
@@ -138,7 +146,7 @@ end
 VPG works pretty well on simple problem. it uses MC returns $G_t$ to estimate the action-advantage function. There is no bias in VPG.  
 Sometime it is good to add a little bit of bias to reduce the variance. AC2 uses several methods to deal with variance.
 
->- Use n-steps returns with boostrapping to estimate the action-advantage function
+>- Use n-steps returns with boostrapping and robust GAE to estimate the action-advantage function
 >- Use multiple workers to roll out sample in parallel from multiple environments, this decorrelate the gathered data and reduce variance for training (like the replay buffer, but here there is no storage needed)
 
 <center>In VPG, we estimate the action-advantage function as follow</center> 
@@ -147,33 +155,71 @@ Sometime it is good to add a little bit of bias to reduce the variance. AC2 uses
 <br>
 <br>
 
-
-
-In A2C, we use the **n-steps Generalized Advantage estimatior (GAE)**, here is how to construct it:
-1. use the n-steps boostrapping estimate for the action-advantage function:
-<center>$A(S_t, A_t; \phi) = R_t + \gamma R_{t+1} + ... + \gamma^n R_{t+n} + \gamma^{n+1} V(S_{t+n+1}; \phi) - V(S_t; \phi)$</center> 
+In A2C, we use an **n-steps** (partial return) version of the action-advantage function instead of the full return  
+<center>$\boxed{A(S_t, A_t; \phi) = R_t + \gamma R_{t+1} + ... + \gamma^n R_{t+n} + \gamma^{n+1} V(S_{t+n+1}; \phi) - V(S_t; \phi)}$</center> 
 <br>
 
-With $V(S_{t+n+1}; \phi)$ being the **boostrapping value**  
+##### Generalized Advantage estimator (GAE)
+
+Aditionally, we use the **(GAE)**, to make a more robust estimate of the action-advantage function $A^{GAE}$, here is how to construct it  
+<br>
+
+>1. Compute the **left hand-side** (partial return or n-steps version) of the action-advantage function:
+<center>
+    $A(S_t, A_t; \phi) = R_t + \gamma R_{t+1} + ... + \gamma^n R_{t+n} + \gamma^{n+1} V(S_{t+n+1}; \phi)$
+</center>  
+
+```python
+n_step_returns = []
+for w in range(self.n_workers):
+    for t_step in range(T):
+        discounted_reward = discounts[:T-t_step] * rewards[t_step:, w]
+        n_step_returns.append(np.sum(discounted_reward))
+```
+<br>
+
+We use n-steps but we dont know what is a good value for n,  n > 1 if usually good but:
+- if n is too large it will be as the full MC return (more variance, as in VPG)
+- if too small it will be to close to the one-step TD update (more biased)
+
+We can use a weighted combination of all n-steps action-advantage target as a single target. That mean, the more n is large, the less impact the action-advantage target will have. We will in fact **discount** the action-advantage target by a exponentially decaying factor $\lambda$.  
+<br>
+
+>2. Get the lambda $\lambda$ and apply the discount factor on it
+<center>$\sum_{l=0}^\infty (\gamma \lambda)^l$</center> 
+
+```python
+lambda_discounts = np.logspace(start=0, stop=T-1, num=T-1, base=self.gamma*self.lambdaa, endpoint=False)
+```
 <br>
   
-2. Discounted $\lambda$  
-<center>$(\gamma \lambda)^l$</center> 
+>3. Calculate TD errors
+<center>$\sum_{t=0}^T R_t * \gamma V(S_{t+1}) - V(S_t)$</center>
+
+```python
+td_errors = rewards[:-1] + self.gamma * values[1:] - values[:-1]
+```
 <br>
 
-3. Discounted advantage
-<center>$(\gamma \lambda)^l * A(S_t, A_t; \phi)$</center>
+>4. Apply the $\lambda$ discounts on the TD errors, hence produce the robust estimator $A^{GAE}$
+<center>$A^{GAE} = \sum_{l=0}^\infty (\gamma \lambda)^l * R_t * \gamma V(S_{t+1}) - V(S_t)$</center>
 
-4. GAE: Sum Discounted advantage: GAE
-<center>$A^{GAE} = \sum_{l=0}^\infty (\gamma \lambda)^l * A(S_t, A_t; \phi)$</center>
+```python
+gaes = []
+for w in range(self.n_workers):
+    for t_step in range(T-1):
+        discounted_advantage = lambda_discounts[:T-1-t_step] * td_errors[t_step:, w]
+        gaes.append(np.sum(discounted_advantage))
+```
 <br>
 
-We can see that if $\lambda = 0$, $A^{GAE} = A(S_t, A_t; \phi)$ as in VPG
-
-<br>
-
-5. Discounted GAE
+>5. Apply on top, the regular discount on $A^{GAE}$
 <center>$\gamma  A^{GAE}$</center>
+
+```python
+discounted_gaes = discounts[:-1] * gaes
+```
+<br>
 
 
 Loss for the Policy Part is:  
@@ -185,4 +231,17 @@ Loss for the Value Part is:
 #### <center>$\boxed{L(\phi) = \frac{1}{N}  \sum_{n=0}^N [(R_t + \gamma R_{t+1} + ... + \gamma^n R_{t+n} + \gamma^{n+1} V(S_{t+n+1}; \phi) - V(S_t; \phi))^2]}$</center>
 
 Since we have one single network sharing the weights, we add the two losses together  
-<center>$\boxed{L(\theta; \phi) = L(\theta) + L(\phi)}$</center>
+#### <center>$\boxed{L(\theta; \phi) = L(\theta) + L(\phi)}$</center>  
+
+```python
+value_error = n_step_returns - values
+
+value_loss = value_error.pow(2).mul(0.5).mean()
+policy_loss = -(discounted_gaes.detach() * logpas).mean()
+entropy_loss = -entropies.mean()
+
+loss = (policy_loss_weight * policy_loss) +  (value_loss_weight * value_loss) +  (entropy_loss_weight * entropy_loss )    
+```
+[![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
+    https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/a2c.py
+)

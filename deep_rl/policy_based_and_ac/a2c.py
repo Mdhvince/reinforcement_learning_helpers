@@ -131,7 +131,7 @@ class A2C():
 
         self.max_n_steps = config.getint("max_n_steps")
         self.n_workers = config.getint("n_workers")
-        self.tau = config.getfloat("tau")
+        self.lambdaa = config.getfloat("lambdaa")
     
 
     def interact_with_environment(self, states, mp_env):
@@ -162,28 +162,27 @@ class A2C():
         discounts = np.logspace(start=0, stop=T, num=T, base=self.gamma, endpoint=False)
         rewards = np.array(self.rewards).squeeze()
 
-        returns = []
+        n_step_returns = []
         for w in range(self.n_workers):
             for t_step in range(T):  # each t_step contains n number of rewards (with n = n_workers)
                 discounted_reward = discounts[:T-t_step] * rewards[t_step:, w]
-                returns.append(np.sum(discounted_reward))
+                n_step_returns.append(np.sum(discounted_reward))
         
-        returns = np.array(returns).reshape(self.n_workers, T)  # All returns per worker
+        # All n_step_returns per worker
+        n_step_returns = np.array(n_step_returns).reshape(self.n_workers, T)
 
-        # here we use GAE to estimate robust targets for the action-advantage function
-        # - use of a exponentially weighted combination of n-step action-advantage function targets
+        # T-1 because the recall the last value in T=len(rewards) is a bootsrapping value
+        lambda_discounts = np.logspace(
+            start=0, stop=T-1, num=T-1, base=self.gamma*self.lambdaa, endpoint=False)
         
         np_values = values.data.numpy()
-        # T-1 because the recall the last value in T=len(rewards) is a bootsrapping value
-        tau_discounts = np.logspace(
-            start=0, stop=T-1, num=T-1, base=self.gamma*self.tau, endpoint=False)
-        
-        advs = rewards[:-1] + self.gamma * np_values[1:] - np_values[:-1]
+        # array of TD errors from 0 to T:   ∑ Rγ * V(St+1) - V(St)
+        td_errors = rewards[:-1] + self.gamma * np_values[1:] - np_values[:-1]
 
         gaes = []
         for w in range(self.n_workers):
             for t_step in range(T-1):
-                discounted_advantage = tau_discounts[:T-1-t_step] * advs[t_step:, w]
+                discounted_advantage = lambda_discounts[:T-1-t_step] * td_errors[t_step:, w]
                 gaes.append(np.sum(discounted_advantage))
 
         gaes = np.array(gaes).reshape(self.n_workers, T-1)
@@ -197,17 +196,17 @@ class A2C():
         values = values[:-1, ...].view(-1).unsqueeze(1)
         logpas = logpas.view(-1).unsqueeze(1)
         entropies = entropies.view(-1).unsqueeze(1)
-        returns = torch.FloatTensor(returns.T[:-1]).reshape(-1, 1)
+        n_step_returns = torch.FloatTensor(n_step_returns.T[:-1]).reshape(-1, 1)
         discounted_gaes = torch.FloatTensor(discounted_gaes.T).reshape(-1, 1)
         
         T -= 1
         T *= self.n_workers
-        assert returns.size() == (T, 1)
+        assert n_step_returns.size() == (T, 1)
         assert values.size() == (T, 1)
         assert logpas.size() == (T, 1)
         assert entropies.size() == (T, 1)
 
-        value_error = returns.detach() - values
+        value_error = n_step_returns.detach() - values
 
         value_loss = value_error.pow(2).mul(0.5).mean()
         policy_loss = -(discounted_gaes.detach() * logpas).mean()
