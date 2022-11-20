@@ -245,3 +245,5 @@ loss = (policy_loss_weight * policy_loss) +  (value_loss_weight * value_loss) + 
 [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
     https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/a2c.py
 )
+
+Next, I will tackle  advanced Actor-Critic methods: DDPG, TD3, SAC, PPO.
