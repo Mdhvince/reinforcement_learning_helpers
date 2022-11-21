@@ -32,6 +32,9 @@ so by multiplying the bad return with the probability of that action, we reduce 
 of that action being selected at that step.
 """
 
+AS_NEW_ROW = 0
+AS_NEW_COLUMN = 1
+
 
 class FCDAP(nn.Module):  # Fully connected discret action policy
     """
@@ -97,7 +100,6 @@ class FCDAP(nn.Module):  # Fully connected discret action policy
     def select_greedy_action(self, state):
         logits = self.forward(state)
         return np.argmax(logits.detach().numpy())
-
 
 
 class FCV(nn.Module):  # Fully connected value (state-value)
@@ -211,5 +213,53 @@ class FCAC(nn.Module):  # Fully connected actor-critic
         return value
 
 
+class FCQV(nn.Module):  # Fully connected Q-function Q(s, a)
+
+    def __init__(self, device, in_dim, out_dim, hidden_dims=(32,32), activation_fc=F.relu):
+        super(FCQV, self).__init__()
+        
+        self.device = device
+        self.activation_fc = activation_fc
+        self.input_layer = nn.Linear(in_dim, hidden_dims[0])
+        self.hidden_layers = nn.ModuleList()
+
+        for i in range(len(hidden_dims)-1):
+            in_dim = hidden_dims[i]
+            # here we just increase the dimention of the first hidden layer
+            # in order to catch states and actions, see torch.cat in self.forward
+            if i == 0: 
+                in_dim += out_dim
+            
+            hidden_layer = nn.Linear(in_dim, hidden_dims[i+1])
+            self.hidden_layers.append(hidden_layer)
+
+        # output the value of a state-action pair
+        self.output_layer = nn.Linear(hidden_dims[-1], 1)
+        self.to(self.device)
+    
+    def _format(self, state, action):
+        x, u = state, action
+
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x, device=self.device, dtype=torch.float32)
+            x = x.unsqueeze(0)
+
+        if not isinstance(u, torch.Tensor):
+            u = torch.tensor(u, device=self.device, dtype=torch.float32)
+            u = u.unsqueeze(0)
+    
+        return x, u
+
+    def forward(self, state, action):
+        x, u = self._format(state, action)
+        x = self.activation_fc(self.input_layer(x))
+
+        for i, hidden_layer in enumerate(self.hidden_layers):
+            if i == 0:
+                x = torch.cat((x, u), dim=AS_NEW_COLUMN)
+            x = self.activation_fc(hidden_layer(x))
+
+        return self.output_layer(x)
+    
 if __name__ == "__main__":
     pass
