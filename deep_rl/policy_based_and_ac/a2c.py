@@ -153,22 +153,21 @@ class A2C():
         logpas = torch.stack(self.logpas).squeeze()
         entropies = torch.stack(self.entropies).squeeze()
         values = torch.stack(self.values).squeeze()
+        n_step_returns = []
+        gaes = []
 
-        
-
-        T = len(self.rewards)  # length of rewards (+ last boostraping value "next_values")
+        T = len(self.rewards)  # length of rewards (+ the boostraping state-value)
 
         # the sequence starts at base**start and ends with base**stop.
         discounts = np.logspace(start=0, stop=T, num=T, base=self.gamma, endpoint=False)
         rewards = np.array(self.rewards).squeeze()
 
-        n_step_returns = []
+        # compute the n-step return from each t
         for w in range(self.n_workers):
-            for t_step in range(T):  # each t_step contains n number of rewards (with n = n_workers)
+            for t_step in range(T):
                 discounted_reward = discounts[:T-t_step] * rewards[t_step:, w]
                 n_step_returns.append(np.sum(discounted_reward))
         
-        # All n_step_returns per worker
         n_step_returns = np.array(n_step_returns).reshape(self.n_workers, T)
 
         # T-1 because the recall the last value in T=len(rewards) is a bootsrapping value
@@ -179,7 +178,7 @@ class A2C():
         # array of TD errors from 0 to T:   ∑ Rγ * V(St+1) - V(St)
         td_errors = rewards[:-1] + self.gamma * np_values[1:] - np_values[:-1]
 
-        gaes = []
+        
         for w in range(self.n_workers):
             for t_step in range(T-1):
                 discounted_advantage = lambda_discounts[:T-1-t_step] * td_errors[t_step:, w]
