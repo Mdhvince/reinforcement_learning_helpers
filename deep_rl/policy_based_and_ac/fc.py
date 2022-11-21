@@ -280,9 +280,9 @@ class FCDP(nn.Module):  # fully connected deterministic policy (for continous ac
         # min and max value of an action, if we have 2 possible actions [move, jump]
         # move: values can be in range (-30, 30)
         # jump: values can be in range (0, 5)
-        # so env_min = [-30, 0] & env_max = [30, 5]
-        self.env_min, self.env_max = action_bounds
-        nA = len(self.env_max)
+        # so lower = [-30, 0] & upper = [30, 5]
+        self.lower, self.upper = action_bounds
+        nA = len(self.upper)
 
         self.input_layer = nn.Linear(in_dim, hidden_dims[0])
         self.hidden_layers = nn.ModuleList()
@@ -294,15 +294,15 @@ class FCDP(nn.Module):  # fully connected deterministic policy (for continous ac
         self.output_layer = nn.Linear(hidden_dims[-1], nA)
         self.to(self.device)
         
-        self.env_min = torch.tensor(self.env_min, device=self.device, dtype=torch.float32)
-        self.env_max = torch.tensor(self.env_max, device=self.device, dtype=torch.float32)
+        self.lower = torch.tensor(self.lower, device=self.device, dtype=torch.float32)
+        self.upper = torch.tensor(self.upper, device=self.device, dtype=torch.float32)
         
         # after passing the tanh, outputs will be in range (-1, 1), so we need to scale it back
         # to original values
         self.nn_min = self.out_activation_fc(torch.Tensor([float('-inf')])).to(self.device)
         self.nn_max = self.out_activation_fc(torch.Tensor([float('inf')])).to(self.device)
-        self.rescale_fn = lambda x: (x - self.nn_min) * (self.env_max - self.env_min) / \
-                                    (self.nn_max - self.nn_min) + self.env_min
+        self.rescale_fn = lambda x: (x - self.nn_min) * (self.upper - self.lower) / \
+                                    (self.nn_max - self.nn_min) + self.lower
 
     def _format(self, state):
         x = state

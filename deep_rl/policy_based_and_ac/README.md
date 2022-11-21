@@ -247,3 +247,5 @@ loss = (policy_loss_weight * policy_loss) +  (value_loss_weight * value_loss) + 
 )
 
 Next, I will tackle  advanced Actor-Critic methods: DDPG, TD3, SAC, PPO.
+
+$L_i(\theta) = E_{(s, a, r, s') \sim U(D)} [(r + \gamma Q(s', \mu(s'; \phi^-); \theta^-) - Q(s, a; \theta _i))^2]$
