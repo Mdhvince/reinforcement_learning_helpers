@@ -260,7 +260,9 @@ if __name__ == "__main__":
             state, is_terminal = env.reset(seed=seed)[0], False
 
             for t_step in count():
-                state, action, reward, next_state, is_terminal = agent.interact_with_environment(state, env)
+                state, action, reward, next_state, is_terminal = (
+                        agent.interact_with_environment(state, env)
+                )
                 agent.store_experience(state, action, reward, next_state, is_terminal)
                 state = next_state
 

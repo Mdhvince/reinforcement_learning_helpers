@@ -246,6 +246,76 @@ loss = (policy_loss_weight * policy_loss) +  (value_loss_weight * value_loss) + 
     https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/a2c.py
 )
 
-Next, I will tackle  advanced Actor-Critic methods: DDPG, TD3, SAC, PPO.
 
-$L_i(\theta) = E_{(s, a, r, s') \sim U(D)} [(r + \gamma Q(s', \mu(s'; \phi^-); \theta^-) - Q(s, a; \theta _i))^2]$
+# Advanced Actor-Critic methods
+
+This section hold more advanced actor-critic algorithms. These algorithms are able to solve more complex task with high dimentional inputs and continous action-space. 
+
+## Deep Deterministic Policy Gradient: DDPG
+
+<center>Uses of ideas from DQN, construct a Q-target but using Q-Funtion network AND Deterministic Policy network. (deterministic here means, same state gives same action)</center>
+
+  ```mermaid
+%%{ init: { 'flowchart': { 'curve': 'basis' } } }%%
+graph
+
+subgraph DDPG
+
+   subgraph Target and Behavior Value Network
+        id1((s1)) & id2((s2)) & id3((s3)) & id4((s4)) ---> 
+        h1((h1)) & h2((h2)) & h3((h3)) & h4((h4)) & h5((h5)) & hn((hn)) ---> v1((Q_sa))
+    end
+
+    subgraph Target and Behavior Policy Network
+        i1((s1)) & i2((s2)) & i3((s3)) & i4((s4)) ---> 
+        hh1((h1)) & hh2((h2)) & hh3((h3)) & hh4((h4)) & hh5((h5)) & hh6((hn)) ---> a((a))
+    end
+
+end
+
+```
+
+- The Value Network have nS (state size) inputs and 1 output that represent the value of a state-action pair $Q(s, a)$
+- The Policy Network have nS (state size) inputs and nA outputs that represent the deterministic action.
+
+
+As in DQN, the agent interact with the environment and store experiences in the replay memory. Then sample a mini-batch from it at random. From there we compute the losses.  
+<br>
+
+Output the action (a') from the __target__ Policy network using the sampled "next-state" from the replay memory
+#### <center>$\boxed{ E_{(-, -, -, s') \sim U(D)} \mu(s'; \phi^-) = a'}$</center>  
+<br>  
+  
+Get the sampled action (a) directly from the replay memory
+#### <center>$\boxed{E_{(-, a, -, -) \sim U(D)} = a}$</center> 
+<br>  
+
+From the actions "a" and "a'", we can construct the target $Q(s', a')$ and the online $Q(s, a)$
+
+Get the state-action pair value from the __target__ value network  
+#### <center>$\boxed{ E_{(-, -, r -) \sim U(D)} Q(s', \mu(s'; \phi^-); \theta^-) = r + \gamma Q(s', a'; \theta^-)}$</center> 
+<br>  
+
+Get the state-action pair value from the __behavior__ value network  
+#### <center>$\boxed{Q(s, a; \theta_i)}$</center> 
+<br> 
+
+Remember in DQN, we improve the behavior networks, then copy the weight to the target after n steps of after each steps if we use Polyak averaging.  
+  
+Loss for the __Behavior__ Value network: 
+#### <center>$\boxed{L_i(\theta) = E_{(s, a, r, s') \sim U(D)} [(r + \gamma Q(s', \mu(s'; \phi^-); \theta^-) - Q(s, a; \theta _i))^2]}$</center>  
+<br> 
+
+From here we have used the Target Policy network to get action "a'", the Target Value network to get Q(s', a') and the behavior value network to get Q(s, a).  
+<br> 
+
+Use the __Behavior__ Policy network to compute what we think is the best action, using the sampled "state" from the replay memory:
+#### <center>$\boxed{ E_{(s, -, -, -) \sim U(D)} \mu(s; \phi_i) = a_{predicted}}$</center> 
+<br>  
+
+Use the __Behavior__ Value network to compute what we think is the value of the state-action_predicted pair:
+#### <center>$\boxed{Q(s, a_{predicted}; \theta_i)}$</center> 
+<br> 
+
+Loss for the __Behavior__ Policy network: 
+#### <center>$\boxed{L_i(\phi) = -\frac{1}{N} \sum_{n=0}^N Q(s, a_{predicted}; \theta_i)} $</center>
