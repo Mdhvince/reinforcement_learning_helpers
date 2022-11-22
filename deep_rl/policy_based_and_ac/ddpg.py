@@ -3,6 +3,8 @@ import configparser
 from pathlib import Path
 from itertools import count
 from collections import deque
+from matplotlib import animation
+import matplotlib.pyplot as plt
 import warnings ; warnings.filterwarnings('ignore')
 
 import gym
@@ -70,6 +72,41 @@ class NormalNoiseStrategy():
         self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
         return action
 
+
+def save_frames_as_gif(frames, filepath):
+
+    #Mess with this to change frame size
+    plt.figure(figsize=(frames[0].shape[1] / 72.0, frames[0].shape[0] / 72.0), dpi=72)
+
+    patch = plt.imshow(frames[0])
+    plt.axis('off')
+
+    def animate(i):
+        patch.set_data(frames[i])
+
+    anim = animation.FuncAnimation(plt.gcf(), animate, frames = len(frames), interval=50)
+    anim.save(filepath, writer='imagemagick', fps=60)
+
+
+def inference(model, env, seed, action_bounds):
+    total_rewards = 0
+    frames = []
+
+    eval_strategy = GreedyStrategy(action_bounds)
+    s, d = env.reset(seed=seed)[0], False
+    
+    for _ in count():
+        with torch.no_grad():
+            a = eval_strategy.select_action(model, s)
+        
+        frames.append(env.render())
+        s, r, d, trunc, _ = env.step(a)
+        total_rewards += r
+        if d or trunc: break
+    
+    env.close()
+
+    return total_rewards, frames
 
 
 class DDPG:
@@ -162,20 +199,20 @@ class DDPG:
  
 
     def evaluate_one_episode(self, env, seed):
-        eval_scores = []
+        total_rewards = 0
 
         s, d = env.reset(seed=seed)[0], False
-        eval_scores.append(0)
-
+        
         for _ in count():
             with torch.no_grad():
                 a = self.eval_strategy.select_action(self.behavior_policy_net, s)
 
             s, r, d, trunc, _ = env.step(a)
-            eval_scores[-1] += r
+            total_rewards += r
             if d or trunc: break
-    
-        return np.mean(eval_scores), np.std(eval_scores)
+
+
+        return total_rewards
     
 
     def sync_weights(self, use_polyak_averaging=True):
@@ -218,7 +255,6 @@ class DDPG:
                 t.data.copy_(b.data)
 
 
-
 if __name__ == "__main__":
     
     folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
@@ -234,7 +270,7 @@ if __name__ == "__main__":
     is_evaluation = conf.getboolean("evaluate_only")
 
     env_name = conf_ddpg.get("env_name")
-    env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
+    env = gym.make(env_name, render_mode="rgb_array") if is_evaluation else gym.make(env_name)
     action_bounds = env.action_space.low, env.action_space.high
     nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
 
@@ -250,10 +286,13 @@ if __name__ == "__main__":
 
     if is_evaluation:
         agent.behavior_policy_net.load_state_dict(torch.load(model_path))
-        mean_eval_score, _ = agent.evaluate_one_episode(env, seed=seed)
+        total_rewards, frames = inference(agent.behavior_policy_net, env, seed, action_bounds)
+        save_frames_as_gif(frames, filepath=str(folder / "ddpg.gif"))
     else:
 
-        evaluation_scores = deque(maxlen=100)
+        last_100_score = deque(maxlen=100)
+        mean_of_last_100 = deque(maxlen=100)
+
         n_episodes = conf_ddpg.getint("n_episodes")
         goal_mean_100_reward = conf_ddpg.getint("goal_mean_100_reward")
 
@@ -274,17 +313,20 @@ if __name__ == "__main__":
                 if is_terminal: break
             
             # Evaluate
-            mean_eval_score, _ = agent.evaluate_one_episode(env, seed=seed)
-            evaluation_scores.append(mean_eval_score)
+            total_rewards = agent.evaluate_one_episode(env, seed=seed)
+            last_100_score.append(total_rewards)
             
-            if len(evaluation_scores) >= 10:
-                mean_100_eval_score = np.mean(evaluation_scores)
-                print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_eval_score}")
+            if len(last_100_score) >= 100:
+                mean_100_score = np.mean(last_100_score)
+                print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_score}")
             
-                if(mean_100_eval_score >= goal_mean_100_reward):
+                if(mean_100_score >= goal_mean_100_reward):
                     torch.save(agent.behavior_policy_net.state_dict(), model_path)
                     break
-
+            else:
+                print(f"Length eval score: {len(last_100_score)}")
+    
+        env.close()
 
 
 

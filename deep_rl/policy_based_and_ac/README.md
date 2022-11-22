@@ -322,6 +322,9 @@ Loss for the __Behavior__ Policy network:
 <br>
 
 In my version of DDPG, I use Polyak Avering to update the target network weights after each step.
+
+![DDPG Pendulum](ddpg.gif)
+
   
 [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
     https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/ddpg.py
