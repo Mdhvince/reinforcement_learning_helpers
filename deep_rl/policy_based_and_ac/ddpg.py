@@ -126,20 +126,19 @@ class DDPG:
 
     def sample_and_learn(self):
         states, actions, rewards, next_states, is_terminals = self.memory.sample(self.device)
-        batch_size = len(is_terminals)
+        
+        # from here:
+        # 1) use targets (policy & value) networks to get respectively a' & Q(s', a')
+        # 2) use behavior value network to get Q(s, a)
+        # 3) compute the value loss and optimize the behavior value network
 
-        # Value Loss θ
-        # Li(θ) = ( r + γQ(s′,μ(s′; ϕ); θ) − Q(s,a;θi) )^2
-        #       = ( r + γQ(s′, target_best_action; θ) − behavior_Q_sa )^2
-        #       = ( r + γ target_Qsa − behavior_Qsa )^2
         target_best_actions = self.target_policy_net(next_states)  # targets running on next_states
         target_Qsa = self.target_value_net(next_states, target_best_actions)
         target_Qsa = rewards + self.gamma * target_Qsa * (1 - is_terminals)
-
-        # now the right hand-side of the equation
         behavior_Qsa = self.behavior_value_net(states, actions)  # behaviors running on states
         
         
+        # Li(θ) = ( r + γQ(s′,μ(s′; ϕ); θ) − Q(s,a;θi) )^2
         error = behavior_Qsa - target_Qsa.detach()
         value_loss = error.pow(2).mul(0.5).mean()
 
@@ -148,11 +147,13 @@ class DDPG:
         torch.nn.utils.clip_grad_norm_(self.behavior_value_net.parameters(), self.max_grad)
         self.value_optimizer.step()
 
-        # Policy Loss ϕ
-        # Li(ϕ) = -1/N * sum of Q(s, μ(s; ϕi); θi) 
+        # from here:
+        # 1) use behaviors (policy & value) networks to get respectively a_best & Q(s, a_best)
+        # 3) compute the policy loss and optimize    
         predicted_best_action = self.behavior_policy_net(states)  # behaviors running on states
         predicted_Qsa = self.behavior_value_net(states, predicted_best_action)
 
+        # Li(ϕ) = -1/N * sum of Q(s, μ(s; ϕi); θi) 
         policy_loss = -predicted_Qsa.mean()
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
