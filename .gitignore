@@ -8,3 +8,5 @@ runs/
 .neptune/
 docker/
 *.pt
+pybullet-gym/
+.vscode/
