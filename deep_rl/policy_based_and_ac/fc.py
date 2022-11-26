@@ -323,5 +323,65 @@ class FCDP(nn.Module):  # fully connected deterministic policy (for continous ac
         return self.rescale_fn(x)
 
 
+class FCTQV(nn.Module):  # fullu connected Twin Q-value network
+
+    def __init__(self, device, in_dim, out_dim, hidden_dims=(32,32), activation_fc=F.relu):
+        super(FCTQV, self).__init__()
+
+        self.device = device
+        self.activation_fc = activation_fc
+
+        self.in_stream_a = nn.Linear(in_dim + out_dim, hidden_dims[0])
+        self.in_stream_b = nn.Linear(in_dim + out_dim, hidden_dims[0])
+
+        self.hidden_layers_a = nn.ModuleList()
+        self.hidden_layers_b = nn.ModuleList()
+        for i in range(len(hidden_dims)-1):
+            hidden_layer_a = nn.Linear(hidden_dims[i], hidden_dims[i+1])
+            self.hidden_layers_a.append(hidden_layer_a)
+
+            hidden_layer_b = nn.Linear(hidden_dims[i], hidden_dims[i+1])
+            self.hidden_layers_b.append(hidden_layer_b)
+
+        self.out_stream_a = nn.Linear(hidden_dims[-1], 1)
+        self.out_stream_b = nn.Linear(hidden_dims[-1], 1)
+
+        self.to(self.device)
+
+    def _format(self, state, action):
+        x, u = state, action
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x, device=self.device, dtype=torch.float32)
+            x = x.unsqueeze(0)
+
+        if not isinstance(u, torch.Tensor):
+            u = torch.tensor(u, device=self.device, dtype=torch.float32)
+            u = u.unsqueeze(0)
+        return x, u
+
+    def forward(self, state, action):
+        x, u = self._format(state, action)
+        x = torch.cat((x, u), dim=AS_NEW_COLUMN)
+
+        xa = self.activation_fc(self.in_stream_a(x))
+        xb = self.activation_fc(self.in_stream_b(x))
+
+        for hidden_layer_a, hidden_layer_b in zip(self.hidden_layers_a, self.hidden_layers_b):
+            xa = self.activation_fc(hidden_layer_a(xa))
+            xb = self.activation_fc(hidden_layer_b(xb))
+
+        xa = self.out_stream_a(xa)
+        xb = self.out_stream_b(xb)
+        return xa, xb
+    
+    def Qa(self, state, action):
+        x, u = self._format(state, action)
+        x = torch.cat((x, u), dim=AS_NEW_COLUMN)
+        xa = self.activation_fc(self.in_stream_a(x))
+        for hidden_layer_a in self.hidden_layers_a:
+            xa = self.activation_fc(hidden_layer_a(xa))
+        return self.out_stream_a(xa)   
+
+
 if __name__ == "__main__":
     pass
