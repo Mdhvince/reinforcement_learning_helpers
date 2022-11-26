@@ -126,14 +126,14 @@ class DDPG:
 
         self.memory = ReplayBuffer(buffer_size, bs, seed)
 
-        self.behavior_value_net = FCQV(device, nS, nA, hidden_dims)  # using ReLu by default
-        self.target_value_net = FCQV(device, nS, nA, hidden_dims)
+        self.critic = FCQV(device, nS, nA, hidden_dims)  # using ReLu by default
+        self.critic_target = FCQV(device, nS, nA, hidden_dims)
 
-        self.behavior_policy_net = FCDP(device, nS, action_bounds, hidden_dims)  # ReLu + Tanh
-        self.target_policy_net = FCDP(device, nS, action_bounds, hidden_dims)
+        self.actor = FCDP(device, nS, action_bounds, hidden_dims)  # ReLu + Tanh
+        self.actor_target = FCDP(device, nS, action_bounds, hidden_dims)
 
-        self.value_optimizer = optim.Adam(self.behavior_value_net.parameters(), lr=lr)
-        self.policy_optimizer = optim.Adam(self.behavior_policy_net.parameters(), lr=lr)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr)
 
         self.max_grad = float('inf')
 
@@ -146,7 +146,7 @@ class DDPG:
 
         use_max_exploration = len(self.memory) < min_samples
 
-        action = self.training_strategy.select_action(self.behavior_policy_net,
+        action = self.training_strategy.select_action(self.actor,
                                                       state,
                                                       use_max_exploration)
         
@@ -164,38 +164,31 @@ class DDPG:
     def sample_and_learn(self):
         states, actions, rewards, next_states, is_terminals = self.memory.sample(self.device)
         
-        # from here:
-        # 1) use targets (policy & value) networks to get respectively a' & Q(s', a')
-        # 2) use behavior value network to get Q(s, a)
-        # 3) compute the value loss and optimize the behavior value network
+        # update the critic: Li(θ) = ( r + γQ(s′,μ(s′; ϕ); θ) − Q(s,a;θi) )^2
 
-        target_best_actions = self.target_policy_net(next_states)  # targets running on next_states
-        target_Qsa = self.target_value_net(next_states, target_best_actions)
-        target_Qsa = rewards + self.gamma * target_Qsa * (1 - is_terminals)
-        behavior_Qsa = self.behavior_value_net(states, actions)  # behaviors running on states
+        a_next = self.actor_target(next_states)
+        Q_next = self.critic_target(next_states, a_next)
+        Q_target = rewards + self.gamma * Q_next * (1 - is_terminals)
+        Q = self.critic(states, actions)
         
-        
-        # Li(θ) = ( r + γQ(s′,μ(s′; ϕ); θ) − Q(s,a;θi) )^2
-        error = behavior_Qsa - target_Qsa.detach()
-        value_loss = error.pow(2).mul(0.5).mean()
+        error = Q - Q_target.detach()
+        critic_loss = error.pow(2).mul(0.5).mean()
 
-        self.value_optimizer.zero_grad()
-        value_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.behavior_value_net.parameters(), self.max_grad)
-        self.value_optimizer.step()
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad)
+        self.critic_optimizer.step()
 
-        # from here:
-        # 1) use behaviors (policy & value) networks to get respectively a_best & Q(s, a_best)
-        # 3) compute the policy loss and optimize    
-        predicted_best_action = self.behavior_policy_net(states)  # behaviors running on states
-        predicted_Qsa = self.behavior_value_net(states, predicted_best_action)
+        # update the actor: Li(ϕ) = -1/N * sum of Q(s, μ(s; ϕi); θi) 
+          
+        a_pred = self.actor(states)
+        Q_pred = self.critic(states, a_pred)
 
-        # Li(ϕ) = -1/N * sum of Q(s, μ(s; ϕi); θi) 
-        policy_loss = -predicted_Qsa.mean()
-        self.policy_optimizer.zero_grad()
-        policy_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.behavior_policy_net.parameters(), self.max_grad)        
-        self.policy_optimizer.step()
+        actor_loss = -Q_pred.mean()
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad)        
+        self.actor_optimizer.step()
  
 
     def evaluate_one_episode(self, env, seed):
@@ -205,7 +198,7 @@ class DDPG:
         
         for _ in count():
             with torch.no_grad():
-                a = self.eval_strategy.select_action(self.behavior_policy_net, s)
+                a = self.eval_strategy.select_action(self.actor, s)
 
             s, r, d, trunc, _ = env.step(a)
             total_rewards += r
@@ -231,14 +224,14 @@ class DDPG:
                 raise Exception("You are using Polyak averaging but TAU is None")
             
             # mixe value networks
-            for t, b in zip(self.target_value_net.parameters(), self.behavior_value_net.parameters()):
+            for t, b in zip(self.critic_target.parameters(), self.critic.parameters()):
                 target_ratio = (1.0 - self.tau) * t.data
                 behavior_ratio = self.tau * b.data
                 mixed_weights = target_ratio + behavior_ratio
                 t.data.copy_(mixed_weights.data)
             
             # mix policy networks
-            for t, b in zip(self.target_policy_net.parameters(), self.behavior_policy_net.parameters()):
+            for t, b in zip(self.actor_target.parameters(), self.actor.parameters()):
                 target_ratio = (1.0 - self.tau) * t.data
                 behavior_ratio = self.tau * b.data
                 mixed_weights = target_ratio + behavior_ratio
@@ -248,10 +241,10 @@ class DDPG:
             target network was frozen during n steps, now we are update it with the behavior network
             weight.
             """
-            for t, b in zip(self.target_value_net.parameters(), self.behavior_value_net.parameters()):
+            for t, b in zip(self.critic_target.parameters(), self.critic.parameters()):
                 t.data.copy_(b.data)
             
-            for t, b in zip(self.target_policy_net.parameters(), self.behavior_policy_net.parameters()):
+            for t, b in zip(self.actor_target.parameters(), self.actor.parameters()):
                 t.data.copy_(b.data)
 
 
@@ -285,8 +278,8 @@ if __name__ == "__main__":
     agent = DDPG(action_bounds, conf_ddpg, seed, device)
 
     if is_evaluation:
-        agent.behavior_policy_net.load_state_dict(torch.load(model_path))
-        total_rewards, frames = inference(agent.behavior_policy_net, env, seed, action_bounds)
+        agent.actor.load_state_dict(torch.load(model_path))
+        total_rewards, frames = inference(agent.actor, env, seed, action_bounds)
         save_frames_as_gif(frames, filepath=str(folder / "ddpg.gif"))
     else:
 
@@ -321,7 +314,7 @@ if __name__ == "__main__":
                 print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_score}")
             
                 if(mean_100_score >= goal_mean_100_reward):
-                    torch.save(agent.behavior_policy_net.state_dict(), model_path)
+                    torch.save(agent.actor.state_dict(), model_path)
                     break
             else:
                 print(f"Length eval score: {len(last_100_score)}")
