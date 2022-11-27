@@ -226,15 +226,11 @@ if __name__ == "__main__":
             # Evaluate
             total_rewards = agent.evaluate_one_episode(env, seed=seed)
             last_100_score.append(total_rewards)
-            
-            if len(last_100_score) >= 100:
-                mean_100_score = np.mean(last_100_score)
-                print(f"Episode {i_episode}\tAverage mean 100 eval score: {mean_100_score}")
-            
-                if(mean_100_score >= goal_mean_100_reward):
-                    torch.save(agent.actor.state_dict(), model_path)
-                    break
-            else:
-                print(f"Length eval score: {len(last_100_score)}", end="\r")
+            mean_100_score = np.mean(last_100_score)
+
+            print(f"Episode {i_episode}\tAverage mean {len(last_100_score)} eval score: {mean_100_score}")
+            if((len(last_100_score) >= 100) and (mean_100_score >= goal_mean_100_reward)):
+                torch.save(agent.actor.state_dict(), model_path)
+                break
 
         env.close()

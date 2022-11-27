@@ -420,7 +420,7 @@ if t_step % self.train_actor_every == 0:
 ``` 
 
 I have tested TD3 in the Hooper environment, here is the result.  
-[Watch the video](deep_rl/policy_based_and_ac/videos/td3_hopper.mp4)
+![TD3 Hopper](deep_rl/policy_based_and_ac/gifs/td3Hopper.gif)
 
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](

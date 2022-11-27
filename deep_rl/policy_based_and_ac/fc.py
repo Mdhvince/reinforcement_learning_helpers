@@ -140,7 +140,7 @@ class FCV(nn.Module):  # Fully connected value (state-value)
         return x
 
 
-class FCAC(nn.Module):  # Fully connected actor-critic
+class FCAC(nn.Module):  # Fully connected actor-critic A2C (Discrete action)
     """
     """
 

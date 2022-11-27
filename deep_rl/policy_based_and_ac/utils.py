@@ -44,6 +44,7 @@ def inference(model, env, seed, eval_strategy):
         with torch.no_grad():
             a = eval_strategy.select_action(model, s)
         
+        print(a)
         frames.append(env.render())
         s, r, d, trunc, _ = env.step(a)
         total_rewards += r
