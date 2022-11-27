@@ -1,6 +1,4 @@
 import random
-import configparser
-from pathlib import Path
 from itertools import count
 from collections import deque
 from matplotlib import animation
@@ -12,9 +10,10 @@ import numpy as np
 import torch
 import torch.optim as optim
 
+import utils
 from fc import FCTQV, FCDP
 from replay_buffer import ReplayBuffer
-from ddpg import GreedyStrategy
+
 
 """
 TD3: Twin Delayed DDPG add some improvement to the ddpg algorithm
@@ -22,77 +21,6 @@ TD3: Twin Delayed DDPG add some improvement to the ddpg algorithm
 - Add noise, not only to the online action but also to the target action
 - Delays updates of the actor, such that the critic get updated more frequently
 """
-
-class NormalNoiseDecayStrategy():
-    def __init__(self, bounds, init_noise_ratio=0.5, min_noise_ratio=0.1, decay_steps=10000):
-        self.t = 0
-        self.low, self.high = bounds
-        self.noise_ratio = init_noise_ratio
-        self.init_noise_ratio = init_noise_ratio
-        self.min_noise_ratio = min_noise_ratio
-        self.decay_steps = decay_steps
-        self.ratio_noise_injected = 0
-
-    def _noise_ratio_update(self):
-        noise_ratio = 1 - self.t / self.decay_steps
-        noise_ratio = (self.init_noise_ratio - self.min_noise_ratio) * noise_ratio + self.min_noise_ratio
-        noise_ratio = np.clip(noise_ratio, self.min_noise_ratio, self.init_noise_ratio)
-        self.t += 1
-        return noise_ratio
-
-    def select_action(self, model, state, max_exploration=False):
-        if max_exploration:
-            noise_scale = self.high
-        else:
-            noise_scale = self.noise_ratio * self.high
-
-        with torch.no_grad():
-            greedy_action = model(state).cpu().detach().data.numpy().squeeze()
-
-        noise = np.random.normal(loc=0, scale=noise_scale, size=len(self.high))
-        noisy_action = greedy_action + noise
-        action = np.clip(noisy_action, self.low, self.high)
-
-        self.noise_ratio = self._noise_ratio_update()
-        self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
-        return action
-
-
-def save_frames_as_gif(frames, filepath):
-
-    #Mess with this to change frame size
-    plt.figure(figsize=(frames[0].shape[1] / 72.0, frames[0].shape[0] / 72.0), dpi=72)
-
-    patch = plt.imshow(frames[0])
-    plt.axis('off')
-
-    def animate(i):
-        patch.set_data(frames[i])
-
-    anim = animation.FuncAnimation(plt.gcf(), animate, frames = len(frames), interval=50)
-    anim.save(filepath, writer='imagemagick', fps=60)
-
-
-def inference(model, env, seed, action_bounds):
-    total_rewards = 0
-    frames = []
-
-    eval_strategy = GreedyStrategy(action_bounds)
-    s, d = env.reset()[0], False
-    
-    for _ in count():
-        with torch.no_grad():
-            a = eval_strategy.select_action(model, s)
-        
-        frames.append(env.render())
-        s, r, d, trunc, _ = env.step(a)
-        total_rewards += r
-        if d or trunc: break
-    
-    env.close()
-
-    return total_rewards, frames
-
 
 
 class TD3():
@@ -123,10 +51,10 @@ class TD3():
 
         self.max_grad = float('inf')
 
-        self.training_strategy = NormalNoiseDecayStrategy(
+        self.training_strategy = utils.NormalNoiseDecayStrategyContinuous(
                 action_bounds, init_noise_ratio=0.5, min_noise_ratio=0.1, decay_steps=200000)
         
-        self.eval_strategy = GreedyStrategy(action_bounds)
+        self.eval_strategy = utils.GreedyStrategyContinuous(action_bounds)
 
         self.policy_noise_ratio = 0.1
         self.policy_noise_clip_ratio = 0.5
@@ -249,40 +177,30 @@ class TD3():
 
 
 if __name__ == "__main__":
-    
-    folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
-    config_file = folder / "config.ini"
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    
-    conf, conf_td3 = config["DEFAULT"], config["TD3"]
+        
+    folder, conf_default, conf_project = utils.get_project_configuration(project_id="TD3")
 
-    seed = conf.getint("seed")
-    is_evaluation = conf.getboolean("evaluate_only")
-    env_name = conf_td3.get("env_name")
-    n_episodes = conf_td3.getint("n_episodes")
-    goal_mean_100_reward = conf_td3.getint("goal_mean_100_reward")
-
-    model_path = Path(folder / conf_td3.get("model_name"))
+    seed = conf_default.getint("seed")
+    is_evaluation = conf_default.getboolean("evaluate_only")
+    env_name = conf_project.get("env_name")
+    n_episodes = conf_project.getint("n_episodes")
+    goal_mean_100_reward = conf_project.getint("goal_mean_100_reward")
+    model_path = folder / conf_project.get("model_name")
     
     env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
     action_bounds = env.action_space.low, env.action_space.high
     nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
-
-    conf_td3["nS"] = f"{nS}"
-    conf_td3["nA"] = f"{nA}"
+    conf_project["nS"] = f"{nS}"
+    conf_project["nA"] = f"{nA}"
 
     torch.manual_seed(seed); np.random.seed(seed); random.seed(seed)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    agent = TD3(action_bounds, conf_td3, seed, device)
+    agent = TD3(action_bounds, conf_project, seed, device)
 
     if is_evaluation:
         agent.actor.load_state_dict(torch.load(model_path))
         total_rewards = agent.evaluate_one_episode(env, seed=seed)
-        print(total_rewards)
-        # total_rewards, frames = inference(agent.actor, env, seed, action_bounds)
-        # save_frames_as_gif(frames, filepath=str(folder / "td3.gif"))
     else:
         last_100_score = deque(maxlen=100)
         mean_of_last_100 = deque(maxlen=100)
@@ -316,5 +234,5 @@ if __name__ == "__main__":
                     break
             else:
                 print(f"Length eval score: {len(last_100_score)}", end="\r")
-    
+
         env.close()

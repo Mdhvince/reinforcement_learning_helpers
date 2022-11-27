@@ -3,8 +3,6 @@ import configparser
 from pathlib import Path
 from itertools import count
 from collections import deque
-from matplotlib import animation
-import matplotlib.pyplot as plt
 import warnings ; warnings.filterwarnings('ignore')
 
 import gym
@@ -12,6 +10,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 
+import utils
 from fc import FCQV, FCDP
 from replay_buffer import ReplayBuffer
 
@@ -35,78 +34,6 @@ end and its angular velocity.
 | 1   | y = sin(theta)   | -1.0 | 1.0 |
 | 2   | Angular Velocity | -8.0 | 8.0 |
 """
-
-
-class GreedyStrategy():
-    def __init__(self, bounds):
-        self.low, self.high = bounds
-        self.ratio_noise_injected = 0
-
-    def select_action(self, model, state):
-        with torch.no_grad():
-            greedy_action = model(state).cpu().detach().data.numpy().squeeze()
-
-        action = np.clip(greedy_action, self.low, self.high)
-        return np.reshape(action, self.high.shape)
-    
-
-class NormalNoiseStrategy():
-    def __init__(self, bounds, exploration_noise_ratio=0.1):
-        self.low, self.high = bounds
-        self.exploration_noise_ratio = exploration_noise_ratio
-        self.ratio_noise_injected = 0
-
-    def select_action(self, model, state, max_exploration=False):
-        if max_exploration:
-            noise_scale = self.high
-        else:
-            noise_scale = self.exploration_noise_ratio * self.high
-
-        with torch.no_grad():
-            greedy_action = model(state).cpu().detach().data.numpy().squeeze()
-
-        noise = np.random.normal(loc=0, scale=noise_scale, size=len(self.high))
-        noisy_action = greedy_action + noise
-        action = np.clip(noisy_action, self.low, self.high)
-        
-        self.ratio_noise_injected = np.mean(abs((greedy_action - action)/(self.high - self.low)))
-        return action
-
-
-def save_frames_as_gif(frames, filepath):
-
-    #Mess with this to change frame size
-    plt.figure(figsize=(frames[0].shape[1] / 72.0, frames[0].shape[0] / 72.0), dpi=72)
-
-    patch = plt.imshow(frames[0])
-    plt.axis('off')
-
-    def animate(i):
-        patch.set_data(frames[i])
-
-    anim = animation.FuncAnimation(plt.gcf(), animate, frames = len(frames), interval=50)
-    anim.save(filepath, writer='imagemagick', fps=60)
-
-
-def inference(model, env, seed, action_bounds):
-    total_rewards = 0
-    frames = []
-
-    eval_strategy = GreedyStrategy(action_bounds)
-    s, d = env.reset(seed=seed)[0], False
-    
-    for _ in count():
-        with torch.no_grad():
-            a = eval_strategy.select_action(model, s)
-        
-        frames.append(env.render())
-        s, r, d, trunc, _ = env.step(a)
-        total_rewards += r
-        if d or trunc: break
-    
-    env.close()
-
-    return total_rewards, frames
 
 
 class DDPG:
@@ -137,8 +64,9 @@ class DDPG:
 
         self.max_grad = float('inf')
 
-        self.training_strategy = NormalNoiseStrategy(action_bounds, exploration_noise_ratio=0.1)
-        self.eval_strategy = GreedyStrategy(action_bounds)
+        self.training_strategy = utils.NormalNoiseStrategyContinuous(action_bounds,
+                                                                     exploration_noise_ratio=0.1)
+        self.eval_strategy = utils.configparser(action_bounds)
     
     
     def interact_with_environment(self, state, env):
@@ -249,45 +177,36 @@ class DDPG:
 
 
 if __name__ == "__main__":
-    
-    folder = Path("/home/medhyvinceslas/Documents/courses/gdrl_rl_spe/deep_rl/policy_based_and_ac")
-    config_file = folder / "config.ini"
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    
-    conf = config["DEFAULT"]
-    conf_ddpg = config["DDPG"]
 
-    seed = conf.getint("seed")
-    model_path = Path(folder / conf_ddpg.get("model_name"))
-    is_evaluation = conf.getboolean("evaluate_only")
+    folder, conf_default, conf_project = utils.get_project_configuration(project_id="DDPG")
 
-    env_name = conf_ddpg.get("env_name")
+    seed = conf_default.getint("seed")
+    model_path = Path(folder / conf_project.get("model_name"))
+    is_evaluation = conf_default.getboolean("evaluate_only")
+    env_name = conf_project.get("env_name")
+    n_episodes = conf_project.getint("n_episodes")
+    goal_mean_100_reward = conf_project.getint("goal_mean_100_reward")
+
     env = gym.make(env_name, render_mode="rgb_array") if is_evaluation else gym.make(env_name)
     action_bounds = env.action_space.low, env.action_space.high
     nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
+    conf_project["nS"] = f"{nS}"
+    conf_project["nA"] = f"{nA}"
 
-    conf_ddpg["nS"] = f"{nS}"
-    conf_ddpg["nA"] = f"{nA}"
-
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    torch.manual_seed(seed); np.random.seed(seed); random.seed(seed)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    agent = DDPG(action_bounds, conf_ddpg, seed, device)
+    agent = DDPG(action_bounds, conf_project, seed, device)
 
     if is_evaluation:
         agent.actor.load_state_dict(torch.load(model_path))
-        total_rewards, frames = inference(agent.actor, env, seed, action_bounds)
-        save_frames_as_gif(frames, filepath=str(folder / "ddpg.gif"))
+        eval_strategy = utils.GreedyStrategyContinuous(action_bounds)
+        total_rewards, frames = utils.inference(agent.actor, env, seed, eval_strategy)
+        utils.save_frames_as_gif(frames, filepath=str(folder / "ddpg.gif"))
     else:
 
         last_100_score = deque(maxlen=100)
         mean_of_last_100 = deque(maxlen=100)
-
-        n_episodes = conf_ddpg.getint("n_episodes")
-        goal_mean_100_reward = conf_ddpg.getint("goal_mean_100_reward")
 
         for i_episode in range(1, n_episodes + 1):
             state, is_terminal = env.reset(seed=seed)[0], False
