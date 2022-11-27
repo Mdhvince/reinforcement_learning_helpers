@@ -9,6 +9,7 @@ import gym
 import numpy as np
 import torch
 import torch.optim as optim
+from gym import wrappers
 
 import utils
 from fc import FCTQV, FCDP
@@ -194,13 +195,14 @@ if __name__ == "__main__":
     conf_project["nA"] = f"{nA}"
 
     torch.manual_seed(seed); np.random.seed(seed); random.seed(seed)
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     agent = TD3(action_bounds, conf_project, seed, device)
 
     if is_evaluation:
         agent.actor.load_state_dict(torch.load(model_path))
-        total_rewards = agent.evaluate_one_episode(env, seed=seed)
+        eval_strategy = utils.GreedyStrategyContinuous(action_bounds)
+        total_rewards, frames = utils.inference(agent.actor, env, seed, eval_strategy)
+    
     else:
         last_100_score = deque(maxlen=100)
         mean_of_last_100 = deque(maxlen=100)

@@ -329,3 +329,100 @@ In my version of DDPG, I use Polyak Avering to update the target network weights
 [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
     https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/ddpg.py
 )
+
+## TD3: Twin-delayed DDPG (SOTA improvement of DDPG)
+<center>Use of a twin network (2 independants streams) to give 2 estimates of the Q function (critic). Add noises to bothe the online action (as in ddpg) and the target action. Delay the update of the actor to give the critic enough time to settle with more accurate estimate.</center>
+
+  ```mermaid
+%%{ init: { 'flowchart': { 'curve': 'basis' } } }%%
+graph
+
+subgraph Critic TWIN Network 
+
+   subgraph Critic Twin-A
+        id1((s1)) & id2((s2)) & id3((s3)) & id4((s4)) ---> 
+        h1((h1)) & h2((h2)) & h3((h3)) & h4((h4)) & h5((h5)) & hn((hn)) ---> v1((Q_a))
+    end
+
+    subgraph Critic Twin-B
+        idd1((s1)) & idd2((s2)) & idd3((s3)) & idd4((s4)) ---> 
+        hh1((h1)) & hh2((h2)) & hh3((h3)) & hh4((h4)) & hh5((h5)) & hhn((hn)) ---> vv1((Q_b))
+    end
+
+end
+```
+
+<center>The Actor network remain unchanged from the one done previously in DDPG</center>  
+
+```mermaid
+%%{ init: { 'flowchart': { 'curve': 'basis' } } }%%
+graph
+
+subgraph Actor Network
+    i1((s1)) & i2((s2)) & i3((s3)) & i4((s4)) ---> 
+    hh1((h1)) & hh2((h2)) & hh3((h3)) & hh4((h4)) & hh5((h5)) & hh6((hn)) ---> a((a))
+end
+
+```
+
+As in DDPG, the agent store experiences in a replay buffer then sample from it to start the learning process.  
+
+##### Main improvements
+__Target Smoothing__  
+- Compute noise for the __target action__ (in ddpg noise is only applied on the online action). Training the policy with noisy targets can be seen as a regularizer because the network is now forced to generalize over similar actions.  
+
+```python
+a_ran = self.actor_target.upper - self.actor_target.lower
+a_noise = torch.randn_like(actions) * self.policy_noise_ratio * a_ran
+n_min = self.actor_target.lower * self.policy_noise_clip_ratio
+n_max = self.actor_target.upper * self.policy_noise_clip_ratio            
+a_noise = torch.max(torch.min(a_noise, n_max), n_min)
+
+# Get the target noisy action
+a_next = self.actor_target(next_states)
+noisy_a_next = a_next + a_noise
+noisy_a_next = torch.max(
+    torch.min(noisy_a_next, self.actor_target.upper), self.actor_target.lower
+)
+```
+
+Once the noisy action is computed, the Q-value from the Twin network in the __minimum__ Q-value of the 2 streams. From it we can compute the Q-target.  
+
+```python
+# Get Q_next from the TWIN critic, which is the min Q between the two streams
+Q_target_stream_a, Q_target_stream_b = self.critic_target(next_states, noisy_a_next)
+Q_next = torch.min(Q_target_stream_a, Q_target_stream_b)
+Q_target = rewards + self.gamma * Q_next * (1 - is_terminals)
+```
+
+__Loss__
+- We compute a single loss for the critic despite the 2 streams
+
+```python
+Q_stream_a, Q_stream_b = self.critic(states, actions)
+error_a = Q_stream_a - Q_target
+error_b = Q_stream_b - Q_target
+
+critic_loss = error_a.pow(2).mul(0.5).mean() + error_b.pow(2).mul(0.5).mean()
+```
+
+__Delays actor update__
+- We delay actor update, so the critic is updated at higher rate. This give the critic the time to settle into more accurate values because it is more sensible.
+
+```python
+if t_step % self.train_actor_every == 0:
+    a_pred = self.actor(states)
+
+    # here we choose one of the 2 streams and we stick to it
+    Q_pred = self.critic.Qa(states, a_pred) 
+
+    actor_loss = -Q_pred.mean()
+``` 
+
+I have tested TD3 in the Hooper environment, here is the result.  
+[Watch the video](deep_rl/policy_based_and_ac/videos/td3_hopper.mp4)
+
+
+[![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white)](
+    https://github.com/Mdhvince/reinforcement_learning/blob/master/deep_rl/policy_based_and_ac/td3.py
+)

@@ -12,4 +12,3 @@ gym/
 pybullet-gym/
 .vscode/
 rl-env/
-*.mp4
