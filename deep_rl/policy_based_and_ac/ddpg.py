@@ -202,7 +202,7 @@ if __name__ == "__main__":
         agent.actor.load_state_dict(torch.load(model_path))
         eval_strategy = utils.GreedyStrategyContinuous(action_bounds)
         total_rewards, frames = utils.inference(agent.actor, env, seed, eval_strategy)
-        utils.save_frames_as_gif(frames, filepath=str(folder / "ddpg.gif"))
+        utils.save_frames_as_gif(frames, filepath=str(folder / "gifs/ddpg.gif"))
     else:
 
         last_100_score = deque(maxlen=100)
