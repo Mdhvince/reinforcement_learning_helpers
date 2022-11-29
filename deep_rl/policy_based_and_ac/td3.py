@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import warnings ; warnings.filterwarnings('ignore')
 
 import gym
+import pybullet_envs
 import numpy as np
 import torch
 import torch.optim as optim
-from gym import wrappers
 
 import utils
 from fc import FCTQV, FCDP
@@ -71,10 +71,9 @@ class TD3():
         use_max_exploration = len(self.memory) < min_samples
         action = self.training_strategy.select_action(self.actor, state, use_max_exploration)
         
-        next_state, reward, is_terminal, is_truncated, _ = env.step(action)
-        is_failure = is_terminal or is_truncated
+        next_state, reward, is_terminal, _ = env.step(action)
 
-        experience = (state, action, reward, next_state, float(is_failure))
+        experience = (state, action, reward, next_state, is_terminal)
         return experience
 
 
@@ -137,15 +136,15 @@ class TD3():
     def evaluate_one_episode(self, env, seed):
         total_rewards = 0
 
-        s, d = env.reset()[0], False
+        s, d = env.reset(), False
         
         for _ in count():
             with torch.no_grad():
                 a = self.eval_strategy.select_action(self.actor, s)
 
-            s, r, d, trunc, _ = env.step(a)
+            s, r, d, _ = env.step(a)
             total_rewards += r
-            if d or trunc: break
+            if d: break
 
 
         return total_rewards
@@ -177,6 +176,7 @@ class TD3():
     
 
 
+
 if __name__ == "__main__":
         
     folder, conf_default, conf_project = utils.get_project_configuration(project_id="TD3")
@@ -188,7 +188,9 @@ if __name__ == "__main__":
     goal_mean_100_reward = conf_project.getint("goal_mean_100_reward")
     model_path = folder / conf_project.get("model_name")
     
-    env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
+    render = True if is_evaluation else False
+    env = utils.make_pybullet_env(env_name, render)
+
     action_bounds = env.action_space.low, env.action_space.high
     nS, nA = env.observation_space.shape[0], env.action_space.shape[0]
     conf_project["nS"] = f"{nS}"
@@ -200,15 +202,13 @@ if __name__ == "__main__":
 
     if is_evaluation:
         agent.actor.load_state_dict(torch.load(model_path))
-        eval_strategy = utils.GreedyStrategyContinuous(action_bounds)
-        total_rewards, frames = utils.inference(agent.actor, env, seed, eval_strategy)
-    
+        total_rewards = agent.evaluate_one_episode(env, seed=seed)
     else:
         last_100_score = deque(maxlen=100)
         mean_of_last_100 = deque(maxlen=100)
 
         for i_episode in range(1, n_episodes + 1):
-            state, is_terminal = env.reset()[0], False
+            state, is_terminal = env.reset(), False
 
             for t_step in count():
                 state, action, reward, next_state, is_terminal = agent.interact(state, env)
@@ -228,8 +228,14 @@ if __name__ == "__main__":
             last_100_score.append(total_rewards)
             mean_100_score = np.mean(last_100_score)
 
-            print(f"Episode {i_episode}\tAverage mean {len(last_100_score)} eval score: {mean_100_score}")
-            if((len(last_100_score) >= 100) and (mean_100_score >= goal_mean_100_reward)):
+            if i_episode % 100 == 0:
+                print(f"Episode {i_episode}\tAverage mean {len(last_100_score)} eval score: {mean_100_score}")
+            
+            enough_sample = len(last_100_score) >= 100
+            goal_reached = mean_100_score >= goal_mean_100_reward
+            training_done = i_episode >= n_episodes
+
+            if((enough_sample and goal_reached) or training_done):
                 torch.save(agent.actor.state_dict(), model_path)
                 break
 

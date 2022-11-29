@@ -13,3 +13,5 @@ pybullet-gym/
 .vscode/
 rl-env/
 *.mp4/
+flightmare/
+testing_*

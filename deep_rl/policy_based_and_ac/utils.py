@@ -2,11 +2,18 @@ from pathlib import Path
 from itertools import count
 import configparser
 
+import gym
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
+
+def make_pybullet_env(env_name, render):
+    spec = gym.envs.registry.spec(env_name)
+    spec._kwargs["render"] = render
+    env = gym.make(env_name)
+    return env
 
 
 def get_project_configuration(project_id="TD3"):
