@@ -1,19 +1,14 @@
 import random
 from itertools import count
 from collections import deque
-from matplotlib import animation
-import matplotlib.pyplot as plt
 import warnings ; warnings.filterwarnings('ignore')
 
-import gym
-import pybullet_envs
-import numpy as np
 import torch
+import numpy as np
 import torch.optim as optim
 
 import utils
 from fc import FCTQV, FCDP
-from replay_buffer import ReplayBuffer
 
 
 """
@@ -39,7 +34,7 @@ class TD3():
         self.gamma = config.getfloat("gamma")
         self.n_warmup_batches = config.getint("n_warmup_batches")
 
-        self.memory = ReplayBuffer(buffer_size, bs, seed)
+        self.memory = utils.ReplayBuffer(buffer_size, bs, seed)
 
         self.actor = FCDP(device, nS, action_bounds, hidden_dims)  # ReLu + Tanh
         self.actor_target = FCDP(device, nS, action_bounds, hidden_dims)

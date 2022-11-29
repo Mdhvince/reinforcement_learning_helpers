@@ -12,7 +12,6 @@ import torch.optim as optim
 
 import utils
 from fc import FCQV, FCDP
-from replay_buffer import ReplayBuffer
 
 """
 Advanced AC methods: DDPG
@@ -51,7 +50,7 @@ class DDPG:
         self.gamma = config.getfloat("gamma")
         self.n_warmup_batches = config.getint("n_warmup_batches")
 
-        self.memory = ReplayBuffer(buffer_size, bs, seed)
+        self.memory = utils.ReplayBuffer(buffer_size, bs, seed)
 
         self.critic = FCQV(device, nS, nA, hidden_dims)  # using ReLu by default
         self.critic_target = FCQV(device, nS, nA, hidden_dims)
