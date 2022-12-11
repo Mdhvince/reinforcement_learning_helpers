@@ -163,7 +163,7 @@ class TD3():
 
 if __name__ == "__main__":
 
-    folder, conf_default, conf_project = utils.get_project_configuration(project_id="TD3")
+    folder, conf_default, conf_project, device = utils.get_project_configuration(project_id="TD3")
 
     seed = conf_default.getint("seed")
     is_evaluation = conf_default.getboolean("evaluate_only")
@@ -180,10 +180,10 @@ if __name__ == "__main__":
     conf_project["nS"] = f"{nS}"
     conf_project["nA"] = f"{nA}"
 
-    torch.manual_seed(seed);
-    np.random.seed(seed);
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     random.seed(seed)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
     agent = TD3(action_bounds, conf_project, seed, device)
 
     if is_evaluation:

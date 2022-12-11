@@ -177,7 +177,7 @@ class DDPG:
 
 if __name__ == "__main__":
 
-    folder, conf_default, conf_project = utils.get_project_configuration(project_id="DDPG")
+    folder, conf_default, conf_project, device = utils.get_project_configuration(project_id="DDPG")
 
     seed = conf_default.getint("seed")
     model_path = Path(folder / conf_project.get("model_name"))
