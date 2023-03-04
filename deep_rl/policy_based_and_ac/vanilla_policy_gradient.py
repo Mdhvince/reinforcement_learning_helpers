@@ -168,6 +168,7 @@ if __name__ == "__main__":
 
     env = gym.make(env_name, render_mode="human") if is_evaluation else gym.make(env_name)
     nS, nA = env.observation_space.shape[0], env.action_space.n
+
     conf_vpg["nS"] = f"{nS}"
     conf_vpg["nA"] = f"{nA}"
 

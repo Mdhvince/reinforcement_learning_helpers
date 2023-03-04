@@ -31,8 +31,9 @@ def get_project_configuration(project_id="TD3"):
 
     conf_default, conf_project = config["DEFAULT"], config[project_id]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model_path = folder / conf_project.get("model_name")
 
-    return folder, conf_default, conf_project, device
+    return folder, conf_default, conf_project, device, model_path
 
 
 def save_frames_as_gif(frames, filepath):

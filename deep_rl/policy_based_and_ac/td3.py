@@ -163,14 +163,14 @@ class TD3():
 
 if __name__ == "__main__":
 
-    folder, conf_default, conf_project, device = utils.get_project_configuration(project_id="TD3")
+    _, conf_default, conf_project, device, model_path = utils.get_project_configuration(project_id="TD3")
 
     seed = conf_default.getint("seed")
     is_evaluation = conf_default.getboolean("evaluate_only")
     env_name = conf_project.get("env_name")
     n_episodes = conf_project.getint("n_episodes")
     goal_mean_100_reward = conf_project.getint("goal_mean_100_reward")
-    model_path = folder / conf_project.get("model_name")
+    
 
     render = True if is_evaluation else False
     env = utils.make_pybullet_env(env_name, render)

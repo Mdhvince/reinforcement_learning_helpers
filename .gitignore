@@ -15,3 +15,5 @@ rl-env/
 *.mp4/
 flightmare/
 testing_*
+AirSim/
+gym*/

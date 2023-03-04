@@ -177,10 +177,9 @@ class DDPG:
 
 if __name__ == "__main__":
 
-    folder, conf_default, conf_project, device = utils.get_project_configuration(project_id="DDPG")
+    folder, conf_default, conf_project, device, model_path = utils.get_project_configuration(project_id="DDPG")
 
     seed = conf_default.getint("seed")
-    model_path = Path(folder / conf_project.get("model_name"))
     is_evaluation = conf_default.getboolean("evaluate_only")
     env_name = conf_project.get("env_name")
     n_episodes = conf_project.getint("n_episodes")
