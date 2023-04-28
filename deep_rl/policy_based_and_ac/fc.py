@@ -1,9 +1,11 @@
-import warnings ; warnings.filterwarnings('ignore')
+import warnings
 
 import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+
+warnings.filterwarnings('ignore')
 
 """Policy Based
 
@@ -36,7 +38,7 @@ AS_NEW_ROW = 0
 AS_NEW_COLUMN = 1
 
 
-class FCDAP(nn.Module):  # Fully connected discret action policy
+class FCDAP(nn.Module):  # Fully connected discrete action policy
     """
     """
 
@@ -225,7 +227,7 @@ class FCQV(nn.Module):  # Fully connected Q-function Q(s, a)
 
         for i in range(len(hidden_dims)-1):
             in_dim = hidden_dims[i]
-            # here we just increase the dimention of the first hidden layer
+            # here we just increase the dimension of the first hidden layer
             # in order to catch states and actions, see torch.cat in self.forward
             if i == 0: 
                 in_dim += out_dim
@@ -262,7 +264,7 @@ class FCQV(nn.Module):  # Fully connected Q-function Q(s, a)
         return self.output_layer(x)
 
 
-class FCDP(nn.Module):  # fully connected deterministic policy (for continous action)
+class FCDP(nn.Module):  # fully connected deterministic policy (for continuous action)
     def __init__(
             self, device, in_dim, action_bounds,
             hidden_dims=(32,32), activation_fc=F.relu, out_activation_fc=F.tanh):
@@ -323,7 +325,7 @@ class FCDP(nn.Module):  # fully connected deterministic policy (for continous ac
         return self.rescale_fn(x)
 
 
-class FCTQV(nn.Module):  # fullu connected Twin Q-value network
+class FCTQV(nn.Module):  # fully connected Twin Q-value network
 
     def __init__(self, device, in_dim, out_dim, hidden_dims=(32,32), activation_fc=F.relu):
         super(FCTQV, self).__init__()
@@ -380,7 +382,7 @@ class FCTQV(nn.Module):  # fullu connected Twin Q-value network
         xa = self.activation_fc(self.in_stream_a(x))
         for hidden_layer_a in self.hidden_layers_a:
             xa = self.activation_fc(hidden_layer_a(xa))
-        return self.out_stream_a(xa)   
+        return self.out_stream_a(xa)
 
 
 if __name__ == "__main__":

@@ -17,3 +17,5 @@ flightmare/
 testing_*
 AirSim/
 gym*/
+.idea/
+deep_rl/policy_based_and_ac/weigths/

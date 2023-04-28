@@ -41,7 +41,7 @@ class MultiprocessEnv(object):
         # Execute the received command 
         while True:
             cmd, kwargs = child_process.recv()
-            if cmd == 'reset': child_process.send(env.reset(seed=seed)[0])
+            if cmd == 'reset': child_process.send(env.reset()[0])
             elif cmd == 'step': child_process.send(env.step(**kwargs))
             else:
                 env.close()
@@ -88,7 +88,7 @@ class MultiprocessEnv(object):
             results.append(
                 (state, np.array(reward, dtype=np.float), np.array(done, dtype=np.float), info)
             )
-        
+
         # return array of 2d arrays.
         # index 0 contains 2d arrays of states
         # index 1 contains 2d arrays of rewards ... 
